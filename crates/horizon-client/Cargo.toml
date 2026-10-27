@@ -8,6 +8,7 @@ rust-version = "1.90"
 description = "Horizon native development client"
 
 [dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 horizon-assets = { path = "../horizon-assets" }
 horizon-core = { path = "../horizon-core" }
 # The server thread ahead of the workers (MinecraftServer.spin's Thread.setPriority).
@@ -24,7 +25,6 @@ horizon-friends = { path = "../horizon-friends" }
 # Horizon mods: sandboxed WebAssembly components, off unless installed and turned on (docs/mods.md).
 # Their runtime is the `mods` feature.
 horizon-mods = { path = "../horizon-mods", default-features = false, features = ["index"] }
-wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
 winit = "0.30.13"
 pollster = "0.4"
 bytemuck = { version = "1.24", features = ["derive"] }
@@ -51,7 +51,6 @@ horizon-theme = { path = "../horizon-theme" }
 # the anonymous "I'm playing" ping the game sends itself (`heartbeat.rs`).
 horizon-telemetry = { path = "../horizon-telemetry", default-features = false, features = ["live"] }
 horizon-bench = { path = "../horizon-bench" }
-arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Controllers (evdev + libudev on Linux, IOKit on macOS, Windows.Gaming.Input); the `controllers` feature.
 gilrs = { version = "0.11", optional = true }
@@ -60,7 +59,16 @@ horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 # HTTPS to the Minecraft services (online-mode session join).
 ureq = { version = "2", default-features = false, features = ["tls"] }
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(not(target_os = "horizon"))'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
+
+# Nintendo Switch: Vulkan through NVK (mesa-switch), with OpenGL through switch-mesa's EGL as
+# the fallback.
+[target.'cfg(target_os = "horizon")'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "gles", "wgsl", "naga-ir"] }
+horizon-nx = { path = "../horizon-nx" }
+
+[target.'cfg(all(unix, not(target_os = "horizon")))'.dependencies]
 # The server thread's CPU time per tick (`HORIZON_SPIKES`, spans.rs).
 rustix = { version = "1", default-features = false, features = ["std", "time"] }
 

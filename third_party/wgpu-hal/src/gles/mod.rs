@@ -341,7 +341,7 @@ pub struct Adapter {
 pub struct Device {
     shared: Arc<AdapterShared>,
     main_vao: glow::VertexArray,
-    #[cfg(all(native, feature = "renderdoc"))]
+    #[cfg(renderdoc_native)]
     render_doc: crate::auxil::renderdoc::RenderDoc,
     counters: Arc<wgt::HalCounters>,
 }

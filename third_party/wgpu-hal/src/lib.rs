@@ -441,6 +441,16 @@ impl AllocationSizes {
         // account.
         const MB: u64 = 1024 * 1024;
 
+        // [bevy-horizon patch] On Horizon, NVK takes every VkDeviceMemory from the process's
+        // malloc heap (mesa-switch `nouveau_horizon_memory.c`), the same ~3 GiB the game's own
+        // allocations come from. `Performance`'s 128-256 MiB device blocks and 64-128 MiB host
+        // blocks would hold back a large part of it, so the default hint gets the `MemoryUsage`
+        // sizes there.
+        #[cfg(target_os = "horizon")]
+        let memory_hints = match memory_hints {
+            wgt::MemoryHints::Performance => &wgt::MemoryHints::MemoryUsage,
+            other => other,
+        };
         match memory_hints {
             wgt::MemoryHints::Performance => Self {
                 min_device_memblock_size: 128 * MB,

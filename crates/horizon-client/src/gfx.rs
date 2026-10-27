@@ -887,7 +887,12 @@ async fn open_device(
         // video memory go to system memory. Shader packs' 16-bit normalized buffers (render
         // targets with the adapter's own format features) and R11F_G11F_B10F: a float
         // stand-in neither clamps nor drops NaN.
-        let features = timing::GpuTimer::features(&adapter)
+        // GL's timestamp readback blocks the frame on the Switch.
+        let features = (if cfg!(target_os = "horizon") {
+            wgpu::Features::empty()
+        } else {
+            timing::GpuTimer::features(&adapter)
+        })
             | cull::Cull::features(&adapter)
             | (adapter.features()
                 & (wgpu::Features::INDIRECT_FIRST_INSTANCE
@@ -2235,9 +2240,10 @@ impl Renderer {
             )
         });
         let sorted_indices = arena::Arena::indices(&device, 1 << 16, flat.is_some());
-        let multi_draw = device
-            .features()
-            .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE)
+        let multi_draw = !cfg!(target_os = "horizon")
+            && device
+                .features()
+                .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE)
             && adapter
                 .get_downlevel_capabilities()
                 .flags
@@ -3035,7 +3041,7 @@ impl Renderer {
     /// Times the shader pack's passes on the GPU while `on` (the F3 overlay is open), or always
     /// with `HORIZON_SHADER_PACK_TIMING`.
     pub fn set_pass_timing(&mut self, on: bool) {
-        self.pass_timing = on || pack_timing::PassTiming::logging();
+        self.pass_timing = (on && !cfg!(target_os = "horizon")) || pack_timing::PassTiming::logging();
     }
     /// The running shader pack's timer, of either kind.
     fn pass_timer<'a>(

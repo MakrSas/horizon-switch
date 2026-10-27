@@ -4,7 +4,7 @@
 #[cfg(any(dx12, all(vulkan, windows)))]
 pub(super) mod dxgi;
 
-#[cfg(all(native, feature = "renderdoc"))]
+#[cfg(renderdoc_native)]
 pub(super) mod renderdoc;
 
 pub mod db {

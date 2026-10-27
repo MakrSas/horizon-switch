@@ -23,13 +23,28 @@ const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
 const EGL_GL_COLORSPACE_KHR: u32 = 0x309D;
 const EGL_GL_COLORSPACE_SRGB_KHR: u32 = 0x3089;
 
-#[cfg(not(Emscripten))]
+#[cfg(not(static_egl))]
 type EglInstance = khronos_egl::DynamicInstance<khronos_egl::EGL1_4>;
 
-#[cfg(Emscripten)]
+#[cfg(static_egl)]
 type EglInstance = khronos_egl::Instance<khronos_egl::Static>;
 
 type EglLabel = *const ffi::c_void;
+
+/// The Switch port's trace: the first presented frames.
+#[cfg(target_os = "horizon")]
+static SWITCH_FRAMES: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+#[cfg(target_os = "horizon")]
+fn switch_trace(step: &str) {
+    let frame = SWITCH_FRAMES.load(core::sync::atomic::Ordering::Relaxed);
+    if frame < 6 {
+        log::warn!("Switch EGL frame {frame}: {step} ({:?})", std::thread::current().name());
+    }
+}
+
+/// The Switch: the default `NWindow`'s one EGL surface (its address), kept for the process.
+#[cfg(target_os = "horizon")]
+static SWITCH_WINDOW_SURFACE: Mutex<usize> = Mutex::new(0);
 
 #[allow(clippy::upper_case_acronyms)]
 type EGLDEBUGPROCKHR = Option<
@@ -179,12 +194,30 @@ struct EglContext {
 
 impl EglContext {
     fn make_current(&self) {
+        #[cfg(target_os = "horizon")]
+        if std::thread::current().name() != Some("Render thread") {
+            static OTHER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+            if OTHER.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 8 {
+                log::warn!("Switch EGL: context locked on {:?}", std::thread::current().name());
+            }
+        }
+        #[cfg(target_os = "horizon")]
+        let surface = match *SWITCH_WINDOW_SURFACE.lock() {
+            0 => self.pbuffer,
+            window => Some(unsafe { khronos_egl::Surface::from_ptr(window as khronos_egl::EGLSurface) }),
+        };
+        #[cfg(not(target_os = "horizon"))]
+        let surface = self.pbuffer;
         self.instance
-            .make_current(self.display, self.pbuffer, self.pbuffer, Some(self.raw))
+            .make_current(self.display, surface, surface, Some(self.raw))
             .unwrap();
     }
 
     fn unmake_current(&self) {
+        // The Switch: the window stays bound (see `make_current`); one thread draws.
+        if cfg!(target_os = "horizon") {
+            return;
+        }
         self.instance
             .make_current(self.display, None, None, None)
             .unwrap();
@@ -725,11 +758,11 @@ impl crate::Instance for Instance {
         use raw_window_handle::RawDisplayHandle as Rdh;
 
         profiling::scope!("Init OpenGL (EGL) Backend");
-        #[cfg(Emscripten)]
+        #[cfg(static_egl)]
         let egl_result: Result<EglInstance, khronos_egl::Error> =
             Ok(khronos_egl::Instance::new(khronos_egl::Static));
 
-        #[cfg(not(Emscripten))]
+        #[cfg(not(static_egl))]
         let egl_result = if cfg!(windows) {
             unsafe {
                 khronos_egl::DynamicInstance::<khronos_egl::EGL1_4>::load_required_from_filename(
@@ -760,10 +793,10 @@ impl crate::Instance for Instance {
             client_ext_str.split_whitespace().collect::<Vec<_>>()
         );
 
-        #[cfg(not(Emscripten))]
+        #[cfg(not(static_egl))]
         let egl1_5 = egl.upcast::<khronos_egl::EGL1_5>();
 
-        #[cfg(Emscripten)]
+        #[cfg(static_egl)]
         let egl1_5: Option<&Arc<EglInstance>> = Some(&egl);
 
         let (display, wsi_kind) = match (desc.display.map(|d| d.as_raw()), egl1_5) {
@@ -933,6 +966,9 @@ impl crate::Instance for Instance {
             (Rwh::Win32(_), _) => {}
             (Rwh::AppKit(_), _) => {}
             (Rwh::OhosNdk(_), _) => {}
+            // The Switch: the handle is the default `NWindow`, Mesa takes it as it is.
+            #[cfg(target_os = "horizon")]
+            (Rwh::AndroidNdk(_), _) => {}
             #[cfg(target_os = "android")]
             (Rwh::AndroidNdk(handle), _) => {
                 let format = inner
@@ -1085,7 +1121,9 @@ pub struct Swapchain {
     surface: khronos_egl::Surface,
     wl_window: Option<*mut wayland_sys::egl::wl_egl_window>,
     framebuffer: glow::Framebuffer,
-    renderbuffer: glow::Renderbuffer,
+    /// A texture rather than a renderbuffer, so frames can be copied from
+    /// (the menu blur reads the frame drawn so far).
+    renderbuffer: glow::Texture,
     /// Extent because the window lies
     extent: wgt::Extent3d,
     format: wgt::TextureFormat,
@@ -1120,6 +1158,8 @@ impl Surface {
             "Surface has no swap-chain configured",
         ))?;
 
+        #[cfg(target_os = "horizon")]
+        switch_trace("present: make_current");
         self.egl
             .instance
             .make_current(
@@ -1169,6 +1209,8 @@ impl Surface {
 
         unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None) };
 
+        #[cfg(target_os = "horizon")]
+        switch_trace("present: blit done, swap_buffers");
         self.egl
             .instance
             .swap_buffers(self.egl.display, sc.surface)
@@ -1177,6 +1219,13 @@ impl Surface {
                 crate::SurfaceError::Lost
                 // TODO: should we unset the current context here?
             })?;
+        #[cfg(target_os = "horizon")]
+        {
+            switch_trace("present: swapped");
+            SWITCH_FRAMES.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        }
+        // The Switch keeps the window bound (see `EglContext::make_current`).
+        #[cfg(not(target_os = "horizon"))]
         self.egl
             .instance
             .make_current(self.egl.display, None, None, None)
@@ -1198,7 +1247,7 @@ impl Surface {
         let gl = &device.shared.context.lock();
         match self.swapchain.write().take() {
             Some(sc) => {
-                unsafe { gl.delete_renderbuffer(sc.renderbuffer) };
+                unsafe { gl.delete_texture(sc.renderbuffer) };
                 unsafe { gl.delete_framebuffer(sc.framebuffer) };
                 Some((sc.surface, sc.wl_window))
             }
@@ -1333,14 +1382,22 @@ impl crate::Surface for Surface {
                 }
                 attributes.push(khronos_egl::ATTRIB_NONE as i32);
 
-                #[cfg(not(Emscripten))]
+                #[cfg(not(static_egl))]
                 let egl1_5 = self.egl.instance.upcast::<khronos_egl::EGL1_5>();
 
-                #[cfg(Emscripten)]
+                #[cfg(static_egl)]
                 let egl1_5: Option<&Arc<EglInstance>> = Some(&self.egl.instance);
 
                 // Careful, we can still be in 1.4 version even if `upcast` succeeds
-                let raw_result = match egl1_5 {
+                #[cfg(target_os = "horizon")]
+                let cached = *SWITCH_WINDOW_SURFACE.lock();
+                #[cfg(not(target_os = "horizon"))]
+                let cached = 0usize;
+                #[cfg(target_os = "horizon")]
+                log::warn!("Switch EGL: configure {}x{}, {} window surface", config.extent.width, config.extent.height, if cached != 0 { "reusing the" } else { "creating the" });
+                let raw_result = if cached != 0 {
+                    Ok(unsafe { khronos_egl::Surface::from_ptr(cached as khronos_egl::EGLSurface) })
+                } else { match egl1_5 {
                     Some(egl) if self.wsi.kind != WindowKind::Unknown => {
                         let attributes_usize = attributes
                             .into_iter()
@@ -1363,8 +1420,12 @@ impl crate::Surface for Surface {
                             Some(&attributes),
                         )
                     },
-                };
+                } };
 
+                #[cfg(target_os = "horizon")]
+                let raw_result = raw_result.inspect(|raw| {
+                    *SWITCH_WINDOW_SURFACE.lock() = raw.as_ptr() as usize;
+                });
                 match raw_result {
                     Ok(raw) => (raw, wl_window),
                     Err(e) => {
@@ -1377,33 +1438,35 @@ impl crate::Surface for Surface {
 
         let format_desc = device.shared.describe_texture_format(config.format);
         let gl = &device.shared.context.lock();
-        let renderbuffer = unsafe { gl.create_renderbuffer() }.map_err(|error| {
-            log::error!("Internal swapchain renderbuffer creation failed: {error}");
+        let renderbuffer = unsafe { gl.create_texture() }.map_err(|error| {
+            log::error!("Internal swapchain texture creation failed: {error}");
             crate::DeviceError::OutOfMemory
         })?;
-        unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer)) };
+        unsafe { gl.bind_texture(glow::TEXTURE_2D, Some(renderbuffer)) };
         unsafe {
-            gl.renderbuffer_storage(
-                glow::RENDERBUFFER,
+            gl.tex_storage_2d(
+                glow::TEXTURE_2D,
+                1,
                 format_desc.internal,
                 config.extent.width as _,
                 config.extent.height as _,
             )
         };
+        unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         let framebuffer = unsafe { gl.create_framebuffer() }.map_err(|error| {
             log::error!("Internal swapchain framebuffer creation failed: {error}");
             crate::DeviceError::OutOfMemory
         })?;
         unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(framebuffer)) };
         unsafe {
-            gl.framebuffer_renderbuffer(
+            gl.framebuffer_texture_2d(
                 glow::READ_FRAMEBUFFER,
                 glow::COLOR_ATTACHMENT0,
-                glow::RENDERBUFFER,
+                glow::TEXTURE_2D,
                 Some(renderbuffer),
+                0,
             )
         };
-        unsafe { gl.bind_renderbuffer(glow::RENDERBUFFER, None) };
         unsafe { gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None) };
 
         let mut swapchain = self.swapchain.write();
@@ -1422,6 +1485,13 @@ impl crate::Surface for Surface {
     }
 
     unsafe fn unconfigure(&self, device: &super::Device) {
+        // The Switch keeps its window surface (see `SWITCH_WINDOW_SURFACE`).
+        #[cfg(target_os = "horizon")]
+        {
+            let _ = unsafe { self.unconfigure_impl(device) };
+            return;
+        }
+        #[allow(unreachable_code)]
         if let Some((surface, wl_window)) = unsafe { self.unconfigure_impl(device) } {
             self.egl
                 .instance
@@ -1447,8 +1517,9 @@ impl crate::Surface for Surface {
             "Surface has no swap-chain configured",
         ))?;
         let texture = super::Texture {
-            inner: super::TextureInner::Renderbuffer {
+            inner: super::TextureInner::Texture {
                 raw: sc.renderbuffer,
+                target: glow::TEXTURE_2D,
             },
             drop_guard: None,
             array_layer_count: 1,

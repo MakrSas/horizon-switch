@@ -380,6 +380,11 @@ struct PrivateCapabilities {
     robust_buffer_access2: bool,
 
     robust_image_access2: bool,
+
+    /// [bevy-horizon patch] Have naga bounds-check shaders made with
+    /// `ShaderRuntimeChecks { bounds_checks: false, .. }` too: `BH_ROBUST_BUFFER_ACCESS=clamp`
+    /// on Horizon (adapter.rs, `HorizonBufferChecks`).
+    horizon_naga_bounds_checks: bool,
     zero_initialize_workgroup_memory: bool,
     image_format_list: bool,
     maximum_samplers: u32,
@@ -560,7 +565,7 @@ pub struct Device {
     desc_allocator: Mutex<descriptor::DescriptorAllocator>,
     valid_ash_memory_types: u32,
     naga_options: naga::back::spv::Options<'static>,
-    #[cfg(feature = "renderdoc")]
+    #[cfg(renderdoc_native)]
     render_doc: crate::auxil::renderdoc::RenderDoc,
     counters: Arc<wgt::HalCounters>,
     // Struct members are dropped from first to last, put the Device last to ensure that
@@ -1667,6 +1672,11 @@ fn map_pipeline_err(err: vk::Result) -> crate::DeviceError {
 /// Returns [`crate::DeviceError::Unexpected`] or panics if the `internal_error_panic`
 /// feature flag is enabled.
 fn get_unexpected_err(_err: vk::Result) -> crate::DeviceError {
+    // bevy-horizon: `DeviceError::Unexpected` drops the VkResult, and on the Switch this log line
+    // is the only place it survives.
+    #[cfg(target_os = "horizon")]
+    log::error!("Vulkan returned {_err:?}, which wgpu reports as an unexpected driver error");
+
     #[cfg(feature = "internal_error_panic")]
     panic!("Unexpected Vulkan error: {_err:?}");
 

@@ -363,6 +363,8 @@ pub struct ItemRenderer {
     sprites: FileSprites,
     baked: Mutex<HashMap<String, Arc<BakedItemModel>>>,
     extents: Mutex<HashMap<String, Arc<Vec<Vec3>>>>,
+    /// GUI vertices of static items drawn at (0, 0), see `gui::draw`.
+    pub(crate) gui_vertices: Mutex<HashMap<gui::CacheKey, Arc<Vec<crate::hud::HudVertex>>>>,
     /// Entity model layers of the special renderers.
     parts: HashMap<String, ModelPart>,
     /// `colormap/grass.png` as ARGB.
@@ -419,6 +421,7 @@ impl ItemRenderer {
         let models = ItemModels {
             definitions: load_definitions(root),
             prototypes,
+            merged: Default::default(),
         };
         let library = library?;
         let permutations = PalettedPermutations::from_atlas(
@@ -452,6 +455,7 @@ impl ItemRenderer {
             },
             baked: Mutex::default(),
             extents: Mutex::default(),
+            gui_vertices: Mutex::default(),
             parts,
             grass,
         })

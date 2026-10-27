@@ -705,6 +705,9 @@ mod tests {
             loaded: None,
             handle: None,
             shown: false,
+            title_logged: false,
+            frames_drawn: 0,
+            frames_skipped: 0,
             menu: StartupMenu::default(),
             error: None,
         }

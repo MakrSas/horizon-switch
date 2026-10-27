@@ -222,6 +222,8 @@ impl Edges {
 /// Horizon's pad-only actions (no vanilla key mapping).
 pub const HOTBAR_PREVIOUS: &str = "pad.hotbarPrevious";
 pub const HOTBAR_NEXT: &str = "pad.hotbarNext";
+/// The debug screen (F3), unbound unless the player binds it.
+pub const DEBUG_SCREEN: &str = "pad.debugScreen";
 
 /// Bindable actions and their default buttons: vanilla key mappings (the
 /// game acts as their default key) and Horizon's pad-only actions. Start is
@@ -246,6 +248,7 @@ pub const ACTIONS: &[(&str, Option<Button>)] = &[
     ("key.screenshot", None),
     ("key.toggleGui", None),
     ("key.smoothCamera", None),
+    (DEBUG_SCREEN, None),
 ];
 
 /// An action's name in the binds list: vanilla's translation key, or
@@ -254,6 +257,7 @@ pub fn action_caption(action: &str) -> &str {
     match action {
         HOTBAR_PREVIOUS => "Hotbar: Previous Slot",
         HOTBAR_NEXT => "Hotbar: Next Slot",
+        DEBUG_SCREEN => "Debug Screen (F3)",
         other => other,
     }
 }
@@ -385,6 +389,8 @@ pub fn steam_keyboard(choice: TextKeyboard) -> bool {
 pub struct PadSettings {
     pub enabled: bool,
     pub vibration: bool,
+    /// Breaking a block ticks the pad too (with `vibration` on).
+    pub block_vibration: bool,
     /// A DualSense's triggers push back (Horizon's; docs/controllers.md).
     pub adaptive_triggers: bool,
     pub lightbar: Lightbar,
@@ -410,6 +416,7 @@ impl Default for PadSettings {
         Self {
             enabled: true,
             vibration: true,
+            block_vibration: true,
             adaptive_triggers: true,
             lightbar: Lightbar::Health,
             look_sensitivity: 0.5,
@@ -465,6 +472,7 @@ impl PadSettings {
             match key.trim() {
                 "enabled" => s.enabled = flag(s.enabled),
                 "vibration" => s.vibration = flag(s.vibration),
+                "blockVibration" => s.block_vibration = flag(s.block_vibration),
                 "adaptiveTriggers" => s.adaptive_triggers = flag(s.adaptive_triggers),
                 "lightbar" => s.lightbar = Lightbar::parse(value),
                 "lookSensitivity" => s.look_sensitivity = unit(s.look_sensitivity),
@@ -497,9 +505,10 @@ impl PadSettings {
     }
     pub fn serialize(&self) -> String {
         let mut text = format!(
-            "enabled:{}\nvibration:{}\nadaptiveTriggers:{}\nlightbar:{}\nlookSensitivity:{}\ninvertX:{}\ninvertY:{}\nmoveDeadzone:{}\nlookDeadzone:{}\ntriggerThreshold:{}\ntoggleSneak:{}\nglyphs:{}\nmenuNavigation:{}\nkeyboard:{}\n",
+            "enabled:{}\nvibration:{}\nblockVibration:{}\nadaptiveTriggers:{}\nlightbar:{}\nlookSensitivity:{}\ninvertX:{}\ninvertY:{}\nmoveDeadzone:{}\nlookDeadzone:{}\ntriggerThreshold:{}\ntoggleSneak:{}\nglyphs:{}\nmenuNavigation:{}\nkeyboard:{}\n",
             bool_text(self.enabled),
             bool_text(self.vibration),
+            bool_text(self.block_vibration),
             bool_text(self.adaptive_triggers),
             self.lightbar.name(),
             self.look_sensitivity,

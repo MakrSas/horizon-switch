@@ -1,0 +1,23 @@
+--- a/library/Cargo.toml
++++ b/library/Cargo.toml
+@@ -88,3 +88,4 @@
+ 
+ # See comments in `library/windows-sys/Cargo.toml` for why this is patched
+ windows-sys = { path = 'windows-sys' }
++libc = { path = "@SWITCH_DIR@/patches/libc-0.2.191" }
+--- a/library/std/src/sys/thread/unix.rs
++++ b/library/std/src/sys/thread/unix.rs
+@@ -155,6 +155,13 @@
+ 
+ pub fn available_parallelism() -> io::Result<NonZero<usize>> {
+     cfg_select! {
++        // The Nintendo Switch: the cores in the process's core mask (nxshim), 3 or 4.
++        target_os = "horizon" => {
++            unsafe extern "C" {
++                fn nxshim_cpu_count() -> usize;
++            }
++            Ok(unsafe { NonZero::new_unchecked(nxshim_cpu_count().max(1)) })
++        }
+         any(
+             target_os = "android",
+             target_os = "emscripten",

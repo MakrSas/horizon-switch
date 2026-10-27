@@ -12,6 +12,64 @@ fn depth_stencil_required_flags() -> vk::FormatFeatureFlags {
     vk::FormatFeatureFlags::SAMPLED_IMAGE | vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT
 }
 
+/// [bevy-horizon patch] What keeps shaders' buffer accesses inside their bindings on Horizon,
+/// from `BH_ROBUST_BUFFER_ACCESS`. Elsewhere it is always [`Driver`](Self::Driver), wgpu's own
+/// behaviour.
+///
+/// With the driver's robustness, NVK checks every storage-buffer access against the buffer's size
+/// in the shader, a component at a time (mesa-switch `src/nouveau/vulkan/nvk_shader.c`,
+/// `nvk_ssbo_addr_format`: `nir_address_format_64bit_bounded_global`). NAK can fold the check into
+/// a load only on SM 7.3 and later, so on the Switch's GM20B (SM 5.3) each check is a branch, and
+/// vector loads become one load per component (mesa `nir_lower_explicit_io.c`). Bevy builds its
+/// shaders without naga's own bounds checks (bevy_render `src/renderer/render_device.rs`,
+/// `ShaderRuntimeChecks::unchecked()`), so the driver's are the only ones those shaders have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HorizonBufferChecks {
+    /// `1` or `driver`: `robustBufferAccess`, and `robustBufferAccess2` where `VK_EXT_robustness2`
+    /// has it, as wgpu asks for everywhere else. An access past a binding reads 0 or is dropped.
+    Driver,
+    /// `clamp`, the default: no driver robustness, and naga's `Restrict` checks in every shader,
+    /// the unchecked ones included. They clamp an index to its array's last element (its
+    /// `arrayLength` for a runtime-sized one) with a `min`, no branch: what wgpu has naga do on a
+    /// device without `robustBufferAccess2` (`naga_options` below), and inside what core
+    /// `robustBufferAccess` allows, which returns any value from within the buffer. Bindings
+    /// themselves stay checked by wgpu against the shader's minimum sizes. Image loads keep the
+    /// driver's image robustness. In the nakhost harness, Skate 3's world fragment shader takes
+    /// 3,595 instructions without checks, 3,708 with these and 4,118 with the driver's.
+    Clamp,
+    /// `0` or `off`: neither. A shader that indexes past a binding reads or writes whatever GPU
+    /// memory is there, or faults the GPU, which loses the device.
+    Off,
+}
+
+fn horizon_buffer_checks() -> HorizonBufferChecks {
+    if !cfg!(target_os = "horizon") {
+        return HorizonBufferChecks::Driver;
+    }
+    let value = std::env::var("BH_ROBUST_BUFFER_ACCESS").ok();
+    let checks = match value.as_deref().map(str::trim) {
+        None | Some("" | "clamp") => HorizonBufferChecks::Clamp,
+        Some("1" | "driver") => HorizonBufferChecks::Driver,
+        Some("0" | "off") => HorizonBufferChecks::Off,
+        Some(other) => {
+            log::warn!("BH_ROBUST_BUFFER_ACCESS={other:?} isn't 1, clamp or 0; using clamp");
+            HorizonBufferChecks::Clamp
+        }
+    };
+    match checks {
+        HorizonBufferChecks::Driver => {
+            log::info!("BH_ROBUST_BUFFER_ACCESS: the driver's buffer robustness");
+        }
+        HorizonBufferChecks::Clamp => log::info!(
+            "BH_ROBUST_BUFFER_ACCESS: naga's clamping bounds checks in every shader, no driver buffer robustness"
+        ),
+        HorizonBufferChecks::Off => {
+            log::warn!("BH_ROBUST_BUFFER_ACCESS=0: buffer robustness is off");
+        }
+    }
+    checks
+}
+
 const INDEXING_FEATURES: wgt::Features = wgt::Features::TEXTURE_BINDING_ARRAY
     .union(wgt::Features::BUFFER_BINDING_ARRAY)
     .union(wgt::Features::STORAGE_RESOURCE_BINDING_ARRAY)
@@ -2315,6 +2373,11 @@ impl super::Instance {
                     .shared
                     .flags
                     .contains(wgt::InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER)
+                    // bevy-horizon: on Horizon the only Vulkan driver is NVK, linked into the
+                    // executable, and NVK reports conformance version 0 on every Tegra GPU, the
+                    // Switch's included (nvk_is_conformant in Mesa's nvk_physical_device.c).
+                    // Hiding it would leave no adapter at all.
+                    || cfg!(target_os = "horizon")
                 {
                     log::debug!("Adapter is not Vulkan compliant: {}", info.name);
                 } else {
@@ -2382,15 +2445,19 @@ impl super::Instance {
                 ),
         );
 
+        let buffer_checks = horizon_buffer_checks();
+        let robust_buffers = buffer_checks == HorizonBufferChecks::Driver;
         let has_robust_buffer_access2 = phd_features
             .robustness2
             .as_ref()
             .map(|r| r.robust_buffer_access2 == 1)
-            .unwrap_or_default();
+            .unwrap_or_default()
+            && robust_buffers;
 
         let alignments = phd_capabilities.to_hal_alignments(has_robust_buffer_access2);
 
         let private_caps = super::PrivateCapabilities {
+            horizon_naga_bounds_checks: buffer_checks == HorizonBufferChecks::Clamp,
             image_view_usage: phd_capabilities.device_api_version >= vk::API_VERSION_1_1
                 || phd_capabilities.supports_extension(khr::maintenance2::NAME),
             timeline_semaphores: match phd_features.timeline_semaphore {
@@ -2425,7 +2492,7 @@ impl super::Instance {
             non_coherent_map_mask: phd_capabilities.properties.limits.non_coherent_atom_size - 1,
             can_present: true,
             //TODO: make configurable
-            robust_buffer_access: phd_features.core.robust_buffer_access != 0,
+            robust_buffer_access: phd_features.core.robust_buffer_access != 0 && robust_buffers,
             robust_image_access: match phd_features.robustness2 {
                 Some(ref f) => f.robust_image_access2 != 0,
                 None => phd_features
@@ -2976,7 +3043,7 @@ impl super::Adapter {
             desc_allocator: Mutex::new(desc_allocator),
             valid_ash_memory_types,
             naga_options,
-            #[cfg(feature = "renderdoc")]
+            #[cfg(renderdoc_native)]
             render_doc: Default::default(),
             counters: Default::default(),
         };

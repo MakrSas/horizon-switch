@@ -13,11 +13,54 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// unprivileged thread lower its priority but not raise it (and the JVM
 /// leaves it there too). Whether the OS took it.
 pub fn favour_current() -> bool {
-    if std::thread::available_parallelism().map_or(1, |n| n.get()) <= 4 {
+    // The Switch has three cores for the whole game, so the server needs one of its own there
+    // most of all (`switch::favour`).
+    if !cfg!(target_os = "horizon")
+        && std::thread::available_parallelism().map_or(1, |n| n.get()) <= 4
+    {
         return false;
     }
     favour()
 }
+
+/// The Nintendo Switch (Horizon). Its kernel runs the highest-priority ready thread on each core
+/// and moves a thread only when its own core mask says so: a helper on the server's core at the
+/// same priority holds a tick back until it blocks. Lower numbers are higher priorities; threads
+/// start at the main thread's, 0x2C.
+#[cfg(target_os = "horizon")]
+mod switch {
+    unsafe extern "C" {
+        fn svcSetThreadPriority(handle: u32, priority: u32) -> u32;
+        fn svcSetThreadCoreMask(handle: u32, core_id: i32, affinity_mask: u64) -> u32;
+    }
+    /// libnx's `CUR_THREAD_HANDLE` pseudo handle.
+    const CURRENT_THREAD: u32 = 0xFFFF_8000;
+    /// The render thread is the main thread, on core 0; the server takes core 1.
+    const SERVER_CORE: i32 = 1;
+
+    /// Ahead of the default priority, on a core of its own.
+    pub fn favour() -> bool {
+        // SAFETY: plain SVCs on the calling thread's own pseudo handle.
+        // The render thread (the main thread) keeps core 0.
+        let main = std::thread::current().name() == Some("main");
+        unsafe {
+            (main || svcSetThreadCoreMask(CURRENT_THREAD, SERVER_CORE, 1 << SERVER_CORE) == 0)
+                && svcSetThreadPriority(CURRENT_THREAD, 0x2B) == 0
+        }
+    }
+    /// Behind the server and render threads: runs when they wait.
+    pub fn behind() -> bool {
+        // SAFETY: as above.
+        unsafe { svcSetThreadPriority(CURRENT_THREAD, 0x2E) == 0 }
+    }
+    /// The application's lowest priority.
+    pub fn idle() -> bool {
+        // SAFETY: as above.
+        unsafe { svcSetThreadPriority(CURRENT_THREAD, 0x3B) == 0 }
+    }
+}
+#[cfg(target_os = "horizon")]
+use switch::favour;
 
 #[cfg(target_vendor = "apple")]
 fn favour() -> bool {
@@ -36,7 +79,7 @@ fn favour() -> bool {
     unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) != 0 }
 }
 
-#[cfg(not(any(target_vendor = "apple", windows)))]
+#[cfg(not(any(target_vendor = "apple", windows, target_os = "horizon")))]
 fn favour() -> bool {
     false
 }
@@ -85,7 +128,10 @@ fn behind() -> bool {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(target_os = "horizon")]
+use switch::behind;
+
+#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "horizon")))]
 fn behind() -> bool {
     false
 }
@@ -121,7 +167,10 @@ fn idle() -> bool {
     unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_IDLE) != 0 }
 }
 
-#[cfg(not(any(target_os = "linux", target_vendor = "apple", windows)))]
+#[cfg(target_os = "horizon")]
+use switch::idle;
+
+#[cfg(not(any(target_os = "linux", target_vendor = "apple", windows, target_os = "horizon")))]
 fn idle() -> bool {
     false
 }

@@ -172,6 +172,8 @@ impl SessionLock {
             .create(true)
             .truncate(false)
             .open(world.join("session.lock"))?;
+        // The Switch has no file locks, and runs one program at a time.
+        #[cfg(not(target_os = "horizon"))]
         file.try_lock()
             .map_err(|_| format!("{} is already open in another instance", world.display()))?;
         file.set_len(0)?;

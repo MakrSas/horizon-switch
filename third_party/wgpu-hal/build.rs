@@ -7,6 +7,8 @@ fn main() {
         ) },
         webgl: { all(target_arch = "wasm32", not(target_os = "emscripten"), gles) },
         Emscripten: { all(target_os = "emscripten", gles) },
+        // EGL linked into the program: Emscripten, and the Switch (no dynamic loader).
+        static_egl: { all(any(target_os = "emscripten", target_os = "horizon"), gles) },
         dx12: { all(target_os = "windows", feature = "dx12") },
         gles: { all(feature = "gles") },
         // Within the GL ES backend, use `std` and be Send + Sync only if we are using a target
@@ -28,6 +30,8 @@ fn main() {
             any(target_os = "linux", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")
         ) },
         any_backend: { any(dx12, metal, vulkan, gles) },
+        // RenderDoc is loaded at run time; the Switch has no dynamic loader.
+        renderdoc_native: { all(native, feature = "renderdoc", not(target_os = "horizon")) },
         // ⚠️ Keep in sync with target.cfg() definition in Cargo.toml and cfg_alias in `wgpu` crate ⚠️
         static_dxc: { all(target_os = "windows", feature = "static-dxc", not(target_arch = "aarch64"), target_env = "msvc") },
         supports_64bit_atomics: { target_has_atomic = "64" },

@@ -1765,7 +1765,7 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn start_graphics_debugger_capture(&self) -> bool {
-        #[cfg(all(native, feature = "renderdoc"))]
+        #[cfg(renderdoc_native)]
         return unsafe {
             self.render_doc
                 .start_frame_capture(self.shared.context.raw_context(), ptr::null_mut())
@@ -1774,7 +1774,7 @@ impl crate::Device for super::Device {
         false
     }
     unsafe fn stop_graphics_debugger_capture(&self) {
-        #[cfg(all(native, feature = "renderdoc"))]
+        #[cfg(renderdoc_native)]
         unsafe {
             self.render_doc
                 .end_frame_capture(ptr::null_mut(), ptr::null_mut())

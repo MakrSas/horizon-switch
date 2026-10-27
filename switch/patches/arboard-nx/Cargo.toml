@@ -1,0 +1,9 @@
+[package]
+name = "arboard"
+version = "3.6.1"
+edition = "2021"
+description = "The Switch has no system clipboard: arboard API, always unavailable"
+
+[features]
+default = []
+wayland-data-control = []

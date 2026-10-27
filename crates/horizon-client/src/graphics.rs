@@ -219,6 +219,10 @@ pub fn lod_capped(info: &wgpu::AdapterInfo) -> bool {
 impl Graphics {
     /// `lod_distance` as far terrain uses it on this adapter.
     pub fn lod_distance_on(&self, info: &wgpu::AdapterInfo) -> u32 {
+        // The Switch's Tegra X1 draws no far terrain.
+        if cfg!(target_os = "horizon") {
+            return 0;
+        }
         let distance = self.lod_distance.min(1024);
         if lod_capped(info) {
             distance.min(INTEGRATED_LOD_DISTANCE)

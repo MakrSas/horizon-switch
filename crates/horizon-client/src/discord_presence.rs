@@ -114,6 +114,7 @@ static THREAD: OnceLock<Thread> = OnceLock::new();
 pub fn start(enabled: bool, automated: bool) {
     let fake_discord = std::env::var_os(IPC_DIR_ENV).is_some();
     if THREAD.get().is_some()
+        || cfg!(target_os = "horizon")
         || std::env::var_os("HORIZON_NO_DISCORD").is_some_and(|v| v != "0")
         || (automated && !fake_discord)
     {

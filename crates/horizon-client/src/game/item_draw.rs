@@ -267,18 +267,22 @@ impl Game<'_> {
     }
     /// `GuiGraphics.renderItem(player, level, stack, x, y, 0)`.
     pub(super) fn draw_item_model(&self, batch: &mut HudBatch, stack: &ItemStack, x: f32, y: f32) {
-        let owner = self.player_owner(Some(stack));
-        let state = self.resolve_item(stack, DisplayContext::Gui, Some(&owner), 0);
-        item_render::gui::draw(
-            &state,
-            &self.pack.item_renderer,
-            &self.gui.atlas.sprites,
-            &self.item_host(),
-            batch,
-            x,
-            y,
-            self.started.elapsed().as_secs_f32(),
-        );
+        let owner = horizon_client::spans::time("item_owner", || self.player_owner(Some(stack)));
+        let state = horizon_client::spans::time("item_resolve", || {
+            self.resolve_item(stack, DisplayContext::Gui, Some(&owner), 0)
+        });
+        horizon_client::spans::time("item_gui_draw", || {
+            item_render::gui::draw(
+                &state,
+                &self.pack.item_renderer,
+                &self.gui.atlas.sprites,
+                &self.item_host(),
+                batch,
+                x,
+                y,
+                self.started.elapsed().as_secs_f32(),
+            )
+        });
     }
     /// Submit a resolved item under `pose` (camera-relative) at `light`
     /// (packed lightmap coordinates).

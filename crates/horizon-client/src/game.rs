@@ -316,6 +316,24 @@ impl Options {
         })
     }
     fn read() -> Result<Option<Self>> {
+        // The Switch has no executable path: the resources are in the game's folder.
+        // The resources as one RomFS image when it is there (fast), else the unpacked folder.
+        #[cfg(target_os = "horizon")]
+        let sibling = match horizon_nx::romfs::mount(
+            &std::path::Path::new(horizon_client::logging::SWITCH_HOME).join("resources.romfs"),
+            "hres",
+        ) {
+            Some(root) => {
+                log::info!("Horizon: resources from {}", root.display());
+                root
+            }
+            None => {
+                let folder = std::path::Path::new(horizon_client::logging::SWITCH_HOME).join("resources");
+                horizon_client::logging::unpack_switch_resources(&folder)?;
+                folder
+            }
+        };
+        #[cfg(not(target_os = "horizon"))]
         let sibling = std::env::current_exe()?
             .parent()
             .ok_or("missing executable directory")?
@@ -326,7 +344,8 @@ impl Options {
             } else {
                 std::path::Path::new(".local/horizon-client").join(horizon_core::VANILLA_VERSION)
             },
-            distance: 12,
+            // The Switch's Tegra X1: vanilla's lowest useful distance.
+            distance: if cfg!(target_os = "horizon") { 6 } else { 12 },
             distance_override: None,
             seed: 0,
             creative: false,
@@ -347,7 +366,9 @@ impl Options {
             window_size: [1280, 720],
             spikes: std::env::var("HORIZON_SPIKES")
                 .ok()
-                .and_then(|v| v.parse().ok()),
+                .and_then(|v| v.parse().ok())
+                // The Switch port: hitches over 70 ms go to the log.
+                .or(cfg!(target_os = "horizon").then_some(70.0)),
             server: None,
             player_name: std::env::var("HORIZON_PLAYER_NAME")
                 .ok()
@@ -4961,27 +4982,27 @@ impl Game<'_> {
         {
             HudBatch::new(size)
         } else {
-            self.hud_layers(size)
+            horizon_client::spans::time("hud_layers", || self.hud_layers(size))
         };
-        self.draw_dialog(&mut batch);
-        self.draw_pack_prompt(&mut batch);
+        horizon_client::spans::time("hud_draw_dialog", || self.draw_dialog(&mut batch));
+        horizon_client::spans::time("hud_draw_pack_prompt", || self.draw_pack_prompt(&mut batch));
         // Gui.extractRenderState: the debug overlay comes after the screen
         // and the toasts, so it is over everything, menus included.
-        self.draw_debug_overlay(&mut batch, size);
+        horizon_client::spans::time("hud_draw_debug_overlay", || self.draw_debug_overlay(&mut batch, size));
         self.frame_graph
             .draw(self.settings.horizon.overlay, &mut batch, &self.gui.atlas);
-        self.draw_pad_cursor(&mut batch);
+        horizon_client::spans::time("hud_draw_pad_cursor", || self.draw_pad_cursor(&mut batch));
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
         let mut batch = HudBatch::new(size);
         let (w, h) = (batch.width, batch.height);
         if self.screen == Screen::Win {
-            self.draw_win_screen(&mut batch);
+            horizon_client::spans::time("hl_draw_win_screen", || self.draw_win_screen(&mut batch));
             return batch;
         }
         if self.screen == Screen::Options {
-            self.draw_options(&mut batch);
+            horizon_client::spans::time("hl_draw_options", || self.draw_options(&mut batch));
             return batch;
         }
         if let Some(title) = &mut self.title {
@@ -5004,12 +5025,12 @@ impl Game<'_> {
         // The ToastManager draws over every screen: a server's packs
         // download while the connection screen shows.
         if self.remote_overlay(&mut batch) {
-            self.draw_pack_toasts(&mut batch);
+            horizon_client::spans::time("hl_draw_pack_toasts", || self.draw_pack_toasts(&mut batch));
             return batch;
         }
         if let Some(reason) = self.loading_reason() {
-            self.draw_level_loading(&mut batch, reason);
-            self.draw_pack_toasts(&mut batch);
+            horizon_client::spans::time("hl_draw_level_loading", || self.draw_level_loading(&mut batch, reason));
+            horizon_client::spans::time("hl_draw_pack_toasts", || self.draw_pack_toasts(&mut batch));
             return batch;
         }
         // Hud.extractRenderState: F1 (keyToggleGui) hides camera overlays, the
@@ -5019,7 +5040,7 @@ impl Game<'_> {
         let (wi, hi) = (w as i32, h as i32);
         let show_hud = !self.ui.hide_gui;
         if show_hud {
-            self.draw_spyglass(&mut batch);
+            horizon_client::spans::time("hl_draw_spyglass", || self.draw_spyglass(&mut batch));
             // Hud.extractCrosshair / extractItemHotbar / extractPlayerHealth /
             // extractVehicleHealth and the experience bar, laid out by hud_layout.
             let indicator = self.settings.attack_indicator;
@@ -5032,7 +5053,7 @@ impl Game<'_> {
                     hud_layout::full_attack_indicator(a, delay, self.crosshair_living())
                 });
                 let draws = hud_layout::crosshair(wi, hi, attack, full);
-                hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                horizon_client::spans::time("hl_paint24", || hud_layout::paint(&mut batch, &self.gui.atlas, &draws));
             }
             if !spectator {
                 let inputs = hud_layout::HotbarInputs {
@@ -5044,7 +5065,7 @@ impl Game<'_> {
                     attack: (indicator == 2).then_some(strength),
                 };
                 let draws = hud_layout::hotbar(wi, hi, &inputs);
-                hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                horizon_client::spans::time("hl_paint25", || hud_layout::paint(&mut batch, &self.gui.atlas, &draws));
                 for d in &draws {
                     if let hud_layout::GuiDraw::Item { slot, x, y, .. } = *d {
                         let stack = if slot == 40 {
@@ -5053,16 +5074,16 @@ impl Game<'_> {
                             self.inventory[slot as usize].clone()
                         };
                         if let Some(stack) = stack {
-                            self.draw_item(&mut batch, &stack, x as f32, y as f32);
+                            horizon_client::spans::time("hl_draw_item", || self.draw_item(&mut batch, &stack, x as f32, y as f32));
                         }
                     }
                 }
             }
-            self.draw_effect_icons(&mut batch);
+            horizon_client::spans::time("hl_draw_effect_icons", || self.draw_effect_icons(&mut batch));
             // Hud: the action bar and titles draw over the hotbar (nextStratum).
-            self.draw_boss_bars(&mut batch);
-            self.draw_extras(&mut batch);
-            self.draw_mod_shapes(&mut batch);
+            horizon_client::spans::time("hl_draw_boss_bars", || self.draw_boss_bars(&mut batch));
+            horizon_client::spans::time("hl_draw_extras", || self.draw_extras(&mut batch));
+            horizon_client::spans::time("hl_draw_mod_shapes", || self.draw_mod_shapes(&mut batch));
         }
         if show_hud {
             // Hud.nextContextualInfoState: the jump bar, the experience bar or
@@ -5114,7 +5135,7 @@ impl Game<'_> {
                     contextual == ContextualBar::Experience,
                     &width,
                 );
-                hud_layout::paint(&mut batch, atlas, &draws);
+                horizon_client::spans::time("hl_paint26", || hud_layout::paint(&mut batch, atlas, &draws));
                 let effects = &self.potions.effects;
                 let kind = if effects.get("poison").is_some() {
                     hud_layout::HeartKind::Poisoned
@@ -5159,23 +5180,23 @@ impl Game<'_> {
                     vehicle_hearts,
                 };
                 let draws = self.health_hud.layout(&inputs, wi, hi);
-                hud_layout::paint(&mut batch, atlas, &draws);
+                horizon_client::spans::time("hl_paint27", || hud_layout::paint(&mut batch, atlas, &draws));
             }
             if contextual == ContextualBar::Locator {
                 let draws = self.locator_bar_draws(wi, hi);
-                hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                horizon_client::spans::time("hl_paint28", || hud_layout::paint(&mut batch, &self.gui.atlas, &draws));
             }
             if !spectator {
-                self.draw_selected_name(&mut batch, !self.creative);
+                horizon_client::spans::time("hl_draw_selected_name", || self.draw_selected_name(&mut batch, !self.creative));
             }
         }
         // Hud.extractSleepOverlay: over all health/food bars, under titles and chat.
         let draws = hud_overlays::sleep_overlay(wi, hi, self.sleep_timer as i32);
-        hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+        horizon_client::spans::time("hl_paint29", || hud_layout::paint(&mut batch, &self.gui.atlas, &draws));
         if show_hud {
-            self.draw_titles(&mut batch);
-            self.draw_scoreboard(&mut batch);
-            self.draw_subtitles(&mut batch);
+            horizon_client::spans::time("hl_draw_titles", || self.draw_titles(&mut batch));
+            horizon_client::spans::time("hl_draw_scoreboard", || self.draw_scoreboard(&mut batch));
+            horizon_client::spans::time("hl_draw_subtitles", || self.draw_subtitles(&mut batch));
         }
         let atlas = &self.gui.atlas;
         if show_hud
@@ -5185,8 +5206,8 @@ impl Game<'_> {
             let tw = HudBatch::text_width(atlas, text);
             batch.text(atlas, text, (w - tw) / 2.0, h - 59.0, u32::MAX, true);
         }
-        self.draw_chat(&mut batch);
-        self.draw_tab_list(&mut batch);
+        horizon_client::spans::time("hl_draw_chat", || self.draw_chat(&mut batch));
+        horizon_client::spans::time("hl_draw_tab_list", || self.draw_tab_list(&mut batch));
         // Screen.extractBlurredBackground blurs the world and HUD, while the
         // screen's background, widgets, toasts and debug overlay stay sharp.
         batch.blur_at = batch.vertices.len() as u32;
@@ -5213,20 +5234,20 @@ impl Game<'_> {
             Screen::Friends => self.draw_friends_screen(&mut batch),
             Screen::CommandBlock => self.draw_command_block(&mut batch),
             Screen::Inventory => {
-                self.draw_inventory(&mut batch);
+                horizon_client::spans::time("hl_draw_inventory", || self.draw_inventory(&mut batch));
             }
             Screen::Creative => {
-                self.draw_creative(&mut batch);
+                horizon_client::spans::time("hl_draw_creative", || self.draw_creative(&mut batch));
             }
             Screen::Chat => self.draw_chat_screen(&mut batch),
             Screen::Mod => self.draw_mod_screen(&mut batch),
             Screen::Playing | Screen::Options | Screen::Win => {}
         }
-        self.draw_toasts(&mut batch);
-        self.draw_pack_toasts(&mut batch);
+        horizon_client::spans::time("hl_draw_toasts", || self.draw_toasts(&mut batch));
+        horizon_client::spans::time("hl_draw_pack_toasts", || self.draw_pack_toasts(&mut batch));
         self.remote_hud(&mut batch);
-        self.draw_sign_editor(&mut batch);
-        self.draw_book(&mut batch);
+        horizon_client::spans::time("hl_draw_sign_editor", || self.draw_sign_editor(&mut batch));
+        horizon_client::spans::time("hl_draw_book", || self.draw_book(&mut batch));
         batch
     }
     fn creative_inventory_open(&self) -> bool {
@@ -7685,16 +7706,17 @@ impl Game<'_> {
         .collect()
     }
     fn tick_mobs(&mut self) -> Result<()> {
-        self.tick_creatures()?;
+        use horizon_client::spans::time;
+        time("mob_creatures", || self.tick_creatures())?;
         self.position_rider();
-        self.tick_stats();
-        self.tick_scoreboard();
+        time("mob_stats", || self.tick_stats());
+        time("mob_scoreboard", || self.tick_scoreboard());
         self.load_bossbars();
-        self.tick_functions();
+        time("mob_functions", || self.tick_functions());
         self.tick_worldborder();
         self.tick_subtitles();
         self.spawn_phantoms();
-        self.tick_advancements();
+        time("mob_advancements", || self.tick_advancements());
         self.tick_player_model();
         Ok(())
     }
@@ -10795,6 +10817,17 @@ impl Game<'_> {
         Ok(())
     }
     /// A mouse button while playing (window or control socket).
+    /// The hotbar slot under a GUI position (`Gui.renderItemHotbar`: 182x22,
+    /// centred at the bottom, 20 pixels a slot).
+    #[cfg(target_os = "horizon")]
+    fn hotbar_slot_at(&self, (x, y): (f32, f32)) -> Option<usize> {
+        let (width, height) = self.gui_size();
+        let left = width / 2.0 - 91.0;
+        if y < height - 22.0 || y > height || x < left + 1.0 || x >= left + 181.0 {
+            return None;
+        }
+        Some((((x - left - 1.0) / 20.0) as usize).min(8))
+    }
     fn play_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         // A mod's claimed item takes the use button (capability `input`).
         if self.mod_use(button, pressed) {
@@ -11485,6 +11518,18 @@ impl ApplicationHandler for Game<'_> {
                         return Ok(());
                     }
                     match self.screen {
+                        // The Switch's touch screen in the world works as Bedrock's: a tap
+                        // on the hotbar picks that slot, and nothing else acts (no breaking
+                        // or using with a held finger). Menus and inventories keep it.
+                        #[cfg(target_os = "horizon")]
+                        Screen::Playing => {
+                            if pressed
+                                && button == MouseButton::Left
+                                && let Some(slot) = self.hotbar_slot_at(self.cursor)
+                            {
+                                self.selected = slot;
+                            }
+                        }
                         Screen::Playing => {
                             if pressed && !self.captured {
                                 self.capture(true);
@@ -11832,7 +11877,15 @@ impl ApplicationHandler for Game<'_> {
                     {
                         let cpu = now.elapsed().saturating_sub(r.last_wait).as_secs_f32() * 1000.0;
                         let spans = horizon_client::spans::take();
-                        if cpu > threshold {
+                        // The Switch port also samples an ordinary frame every 300.
+                        #[cfg(target_os = "horizon")]
+                        let sample = {
+                            static FRAMES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                            FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 300 == 0
+                        };
+                        #[cfg(not(target_os = "horizon"))]
+                        let sample = false;
+                        if cpu > threshold || sample {
                             // The render thread's own CPU time in the frame:
                             // far below the wall time, the frame waited.
                             let worked = horizon_client::spans::thread_cpu()
@@ -12863,6 +12916,17 @@ fn load_resources(
                     "Horizon: rest-ready after {} ms",
                     started.elapsed().as_millis()
                 );
+                // Parse the worldgen bundle now, while the title screen is up, so opening a
+                // world only builds the seeded generator. After the rest, not beside it: run
+                // together they both crawl.
+                let warmed = Instant::now();
+                match horizon_client::vanillagen::shared_data(&root.join("worldgen"), assets.registry) {
+                    Ok(_) => log::info!(
+                        "Horizon: worldgen data ready in {} ms",
+                        warmed.elapsed().as_millis()
+                    ),
+                    Err(e) => log::warn!("Horizon: worldgen data not preloaded: {e}"),
+                }
                 Ok(())
             })?;
         Some(WorldRestLoader {
@@ -13304,6 +13368,10 @@ struct Loading {
     loaded: Option<std::result::Result<Loaded, String>>,
     handle: Option<JoinHandle<()>>,
     shown: bool,
+    /// Startup diagnostics: the first title frame, and the frames before it.
+    title_logged: bool,
+    frames_drawn: u32,
+    frames_skipped: u32,
     menu: startup_menu::StartupMenu,
     error: Option<Box<dyn std::error::Error>>,
 }
@@ -13386,6 +13454,7 @@ impl Loading {
         if let Some(renderer) = &mut self.renderer {
             renderer.release_surface();
         }
+        let building = Instant::now();
         match loading_renderer(
             window,
             offscreen,
@@ -13399,6 +13468,10 @@ impl Loading {
             }
             Err(e) => self.error = Some(e),
         }
+        log::info!(
+            "Horizon: title renderer built in {} ms",
+            building.elapsed().as_millis()
+        );
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(error) = self.poll_menu_resources() {
@@ -13433,9 +13506,19 @@ impl Loading {
         if let Some(renderer) = &mut self.renderer {
             match renderer.render(&frame) {
                 Ok(true) if self.gui.is_some() && self.menu.pending.is_none() => {
+                    if !self.title_logged {
+                        self.title_logged = true;
+                        log::info!(
+                            "Horizon: title screen drawn after {} ms ({} startup frames drawn, {} not)",
+                            self.started.elapsed().as_millis(),
+                            self.frames_drawn,
+                            self.frames_skipped
+                        );
+                    }
                     self.menu.perf.title_shown()
                 }
-                Ok(_) => {}
+                Ok(true) => self.frames_drawn += 1,
+                Ok(false) => self.frames_skipped += 1,
                 Err(e) => log::warn!("Horizon: loading screen frame failed: {e}"),
             }
         }
@@ -13626,6 +13709,9 @@ fn run_loading(
         loaded: None,
         handle: Some(loader),
         shown: false,
+        title_logged: false,
+        frames_drawn: 0,
+        frames_skipped: 0,
         menu,
         error: None,
     };

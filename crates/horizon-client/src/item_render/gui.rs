@@ -5,10 +5,10 @@
 //! drawn far to near, and clipped to the item's 16x16 slot unless the model
 //! is oversized in the GUI (`GuiItemAtlas` draws each item into a scissored
 //! 16x16 slot; oversized items get a picture-in-picture of their bounds).
-use super::{Foil, ItemQuad, ItemRenderState, ItemRenderer, SpecialHost};
-use crate::hud::{HudBatch, Rect};
+use super::{Foil, FoilType, ItemQuad, ItemRenderState, ItemRenderer, LayerGeometry, SpecialHost};
+use crate::hud::{HudBatch, HudVertex, Rect};
 use glam::{EulerRot, Mat4, Vec2, Vec3};
-use std::{collections::HashMap, f32::consts::PI};
+use std::{collections::HashMap, f32::consts::PI, sync::Arc};
 
 mod depth;
 
@@ -148,6 +148,75 @@ pub fn draw(
     if state.is_empty() {
         return;
     }
+    // Most slots hold plain baked items whose drawing depends only on the
+    // resolved layers: draw those once at the origin and translate the
+    // vertices afterwards, instead of sorting and clipping every frame.
+    let Some(key) = cache_key(state) else {
+        return draw_at(state, renderer, sprites, host, batch, x, y, time);
+    };
+    let hit = renderer
+        .gui_vertices
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&key).cloned());
+    let vertices = hit.unwrap_or_else(|| {
+        let mut scratch = HudBatch::new([320, 240]);
+        draw_at(state, renderer, sprites, host, &mut scratch, 0.0, 0.0, time);
+        let vertices = Arc::new(scratch.vertices);
+        if let Ok(mut cache) = renderer.gui_vertices.lock() {
+            if cache.len() >= 1024 {
+                cache.clear();
+            }
+            cache.insert(key, vertices.clone());
+        }
+        vertices
+    });
+    batch.vertices.extend(vertices.iter().map(|v| HudVertex {
+        pos: [v.pos[0] + x, v.pos[1] + y],
+        ..*v
+    }));
+}
+
+/// What a static items GUI drawing depends on: each layers baked model,
+/// tints, transform and lighting, and whether it is clipped to its slot.
+/// `None` for glinted or special-model layers, which change over time or
+/// read the host.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct CacheKey {
+    layers: Vec<(usize, Vec<i32>, [u32; 16], bool)>,
+    oversized: bool,
+}
+fn cache_key(state: &ItemRenderState) -> Option<CacheKey> {
+    let layers = state
+        .layers
+        .iter()
+        .map(|layer| match &layer.geometry {
+            LayerGeometry::Quads(baked) if layer.foil == FoilType::None => Some((
+                Arc::as_ptr(baked) as usize,
+                layer.tints.clone(),
+                layer.matrix.to_cols_array().map(f32::to_bits),
+                layer.uses_block_light,
+            )),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    Some(CacheKey {
+        layers,
+        oversized: state.oversized_in_gui,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_at(
+    state: &ItemRenderState,
+    renderer: &ItemRenderer,
+    sprites: &HashMap<String, Rect>,
+    host: &dyn SpecialHost,
+    batch: &mut HudBatch,
+    x: f32,
+    y: f32,
+    time: f32,
+) {
     let pose = Mat4::from_translation(Vec3::new(x + 8.0, y + 8.0, 0.0))
         * Mat4::from_scale(Vec3::new(16.0, -16.0, 16.0));
     let mut quads: Vec<ItemQuad> = Vec::new();

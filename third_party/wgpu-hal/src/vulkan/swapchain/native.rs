@@ -438,6 +438,19 @@ impl Swapchain for NativeSwapchain {
             timeout_ns = u64::MAX;
         }
 
+        // bevy-horizon: on Horizon, wait for the next image for as long as it takes, as above for
+        // Android before 11. wgpu-core asks for 1 s (`FRAME_TIMEOUT_MS`), and Bevy panics when that
+        // runs out ("Couldn't get swap chain texture", bevy_render's `src/view/window/mod.rs`), so a
+        // single frame of more than a second, or a wait that spans the app being suspended, would end
+        // the game. NVK's Horizon swapchain waits without a limit for `u64::MAX` (mesa-switch
+        // `src/vulkan/wsi/wsi_common_switch.c`, `wsi_switch_dequeue_buffer`). A longer wait than wgpu
+        // asked for is logged below.
+        #[cfg(target_os = "horizon")]
+        let horizon_wait = (timeout_ns != u64::MAX).then(|| (std::time::Instant::now(), timeout_ns));
+        if cfg!(target_os = "horizon") {
+            timeout_ns = u64::MAX;
+        }
+
         let acquire_semaphore_arc = self.get_acquire_semaphore();
         // Nothing should be using this, so we don't block, but panic if we fail to lock.
         let acquire_semaphore_guard = acquire_semaphore_arc
@@ -510,6 +523,18 @@ impl Swapchain for NativeSwapchain {
                     .raw
                     .reset_fences(&[fence])
                     .map_err(map_host_device_oom_and_lost_err)?;
+            }
+        }
+
+        #[cfg(target_os = "horizon")]
+        if let Some((start, asked_ns)) = horizon_wait {
+            let waited = start.elapsed();
+            if waited.as_nanos() > u128::from(asked_ns) {
+                log::warn!(
+                    "wgpu-hal: waited {:.1} s for the window's next image, longer than the {:.1} s wgpu asks for; on Horizon it waits for as long as it takes",
+                    waited.as_secs_f64(),
+                    asked_ns as f64 / 1e9
+                );
             }
         }
 

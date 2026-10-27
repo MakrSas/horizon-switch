@@ -15,6 +15,61 @@ use parking_lot::{Mutex, RwLock};
 use super::{conv, descriptor::DescriptorCounts, RawTlasInstance};
 use crate::TlasInstance;
 
+/// [bevy-horizon patch] Whether `BH_RT_COMPRESSION=1` gives this texture memory of its own, on
+/// Horizon.
+///
+/// NVK compresses an image only when its memory was allocated for it alone, with
+/// `VkMemoryDedicatedAllocateInfo` naming it: mesa-switch's `nvk_device_memory.c` maps such an
+/// allocation with NIL's compressed PTE kind on the Switch, and `nvk_image_plane_bind` marks the
+/// image compressed. wgpu otherwise places every texture inside a larger allocation; gpu-allocator's
+/// `AllocationScheme::DedicatedImage` names the image. Compressed render targets get the GPU's fast
+/// clears and compressed depth. Only single-sampled colour targets of 4, 8 or 16 bytes a texel and
+/// `Depth32Float` targets over 1 MiB qualify, as NVK prefers (`nvk_GetImageMemoryRequirements2`);
+/// NIL has no compressed kind for smaller texels. Storage images are left out, to start with the
+/// targets whose clears and blends compression is for. Off by default: mesa-switch's compressed
+/// path hadn't run on a Switch before this. The Bevy 0.18 copy (wgpu-hal 27, gpu-alloc) does the
+/// same in `Device::horizon_dedicated_texture`.
+fn horizon_rt_compression(desc: &crate::TextureDescriptor, size: u64) -> bool {
+    if !cfg!(target_os = "horizon") {
+        return false;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    static LOGGED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    let on = *ON.get_or_init(|| {
+        let on = std::env::var("BH_RT_COMPRESSION").is_ok_and(|value| value.trim() == "1");
+        if on {
+            log::warn!("BH_RT_COMPRESSION=1: render targets get memory of their own, for NVK to compress");
+        }
+        on
+    });
+    if !on || size <= 1 << 20 || desc.sample_count != 1 {
+        return false;
+    }
+    let usage = conv::map_texture_usage(desc.usage);
+    let format = match desc.format {
+        wgt::TextureFormat::Depth32Float => true,
+        format if format.is_depth_stencil_format() || format.is_compressed() => false,
+        format => matches!(format.block_copy_size(None), Some(4 | 8 | 16)),
+    };
+    let dedicated = format
+        && usage.intersects(
+            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+        )
+        && !usage.contains(vk::ImageUsageFlags::STORAGE);
+    if dedicated && LOGGED.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 32 {
+        log::warn!(
+            "BH_RT_COMPRESSION: {:?} ({}x{}x{} {:?}, {} KiB) gets memory of its own",
+            desc.label.unwrap_or("Unlabeled texture"),
+            desc.size.width,
+            desc.size.height,
+            desc.size.depth_or_array_layers,
+            desc.format,
+            size >> 10,
+        );
+    }
+    dedicated
+}
+
 impl super::DeviceShared {
     /// Set the name of `object` to `name`.
     ///
@@ -726,7 +781,11 @@ impl super::Device {
                 let mut temp_options;
                 let options = if needs_temp_options {
                     temp_options = self.naga_options.clone();
-                    if !runtime_checks.bounds_checks {
+                    // [bevy-horizon patch] With `BH_ROBUST_BUFFER_ACCESS=clamp`, naga's checks
+                    // stand in for the driver's robustness, so they stay.
+                    if !runtime_checks.bounds_checks
+                        && !self.shared.private_caps.horizon_naga_bounds_checks
+                    {
                         temp_options.bounds_check_policies = naga::proc::BoundsCheckPolicies {
                             index: naga::proc::BoundsCheckPolicy::Unchecked,
                             buffer: naga::proc::BoundsCheckPolicy::Unchecked,
@@ -1189,6 +1248,13 @@ impl crate::Device for super::Device {
 
         let name = desc.label.unwrap_or("Unlabeled texture");
 
+        // [bevy-horizon patch] `BH_RT_COMPRESSION=1`: see `horizon_rt_compression`.
+        let allocation_scheme = if horizon_rt_compression(desc, image.requirements.size) {
+            gpu_allocator::vulkan::AllocationScheme::DedicatedImage(image.raw)
+        } else {
+            gpu_allocator::vulkan::AllocationScheme::GpuAllocatorManaged
+        };
+
         let allocation = self
             .mem_allocator
             .lock()
@@ -1201,7 +1267,7 @@ impl crate::Device for super::Device {
                 },
                 location: gpu_allocator::MemoryLocation::GpuOnly,
                 linear: false,
-                allocation_scheme: gpu_allocator::vulkan::AllocationScheme::GpuAllocatorManaged,
+                allocation_scheme,
             })
             .inspect_err(|_| {
                 unsafe { self.shared.raw.destroy_image(image.raw, None) };
@@ -1881,7 +1947,10 @@ impl crate::Device for super::Device {
                             file_name: d.file_name.as_ref(),
                             language: naga::back::spv::SourceLanguage::WGSL,
                         });
-                if !desc.runtime_checks.bounds_checks {
+                // [bevy-horizon patch] As in `compile_stage`.
+                if !desc.runtime_checks.bounds_checks
+                    && !self.shared.private_caps.horizon_naga_bounds_checks
+                {
                     naga_options.bounds_check_policies = naga::proc::BoundsCheckPolicies {
                         index: naga::proc::BoundsCheckPolicy::Unchecked,
                         buffer: naga::proc::BoundsCheckPolicy::Unchecked,
@@ -2592,7 +2661,7 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn start_graphics_debugger_capture(&self) -> bool {
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc_native)]
         {
             // Renderdoc requires us to give us the pointer that vkInstance _points to_.
             let raw_vk_instance =
@@ -2603,11 +2672,11 @@ impl crate::Device for super::Device {
                     .start_frame_capture(raw_vk_instance_dispatch_table, ptr::null_mut())
             }
         }
-        #[cfg(not(feature = "renderdoc"))]
+        #[cfg(not(renderdoc_native))]
         false
     }
     unsafe fn stop_graphics_debugger_capture(&self) {
-        #[cfg(feature = "renderdoc")]
+        #[cfg(renderdoc_native)]
         {
             // Renderdoc requires us to give us the pointer that vkInstance _points to_.
             let raw_vk_instance =

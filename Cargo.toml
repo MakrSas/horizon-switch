@@ -1,6 +1,6 @@
 [workspace]
 exclude = ["launcher", "crates/horizon-telemetry-server", "crates/horizon-mod-registry", "third_party/wgpu-hal"]
-members = ["crates/horizon-core", "crates/horizon-dualsense", "crates/horizon-threads", "crates/horizon-world", "crates/horizon-client", "crates/horizon-server-files", "crates/horizon-server", "crates/horizon-bots", "crates/horizon-assets", "crates/horizon-protocol", "crates/horizon-theme", "crates/horizon-prepare", "crates/horizon-telemetry", "crates/horizon-bench", "crates/horizon-friends", "crates/horizon-relay", "crates/horizon-mod-sdk", "crates/horizon-mods", "crates/horizon-mods/tests/guest", "crates/horizon-mods/tests/ui_guest", "crates/cargo-horizon-mod", "crates/horizon-port-pack", "crates/horizon-shaders", "crates/horizon-shader-api", "crates/horizon-release-sign", "crates/horizon-mod-sdk/examples/coords-hud", "crates/horizon-mod-sdk/examples/predator-missile", "crates/horizon-mod-sdk/examples/welcome", "mods/official/fps-overlay", "mods/official/keystrokes", "mods/official/minimap", "mods/official/zoom", "xtask"]
+members = ["crates/horizon-core", "crates/horizon-nx", "crates/horizon-dualsense", "crates/horizon-threads", "crates/horizon-world", "crates/horizon-client", "crates/horizon-server-files", "crates/horizon-server", "crates/horizon-bots", "crates/horizon-assets", "crates/horizon-protocol", "crates/horizon-theme", "crates/horizon-prepare", "crates/horizon-telemetry", "crates/horizon-bench", "crates/horizon-friends", "crates/horizon-relay", "crates/horizon-mod-sdk", "crates/horizon-mods", "crates/horizon-mods/tests/guest", "crates/horizon-mods/tests/ui_guest", "crates/cargo-horizon-mod", "crates/horizon-port-pack", "crates/horizon-shaders", "crates/horizon-shader-api", "crates/horizon-release-sign", "crates/horizon-mod-sdk/examples/coords-hud", "crates/horizon-mod-sdk/examples/predator-missile", "crates/horizon-mod-sdk/examples/welcome", "mods/official/fps-overlay", "mods/official/keystrokes", "mods/official/minimap", "mods/official/zoom", "xtask"]
 resolver = "2"
 
 [workspace.package]
@@ -23,6 +23,16 @@ large_enum_variant = "allow"
 # folder once a wgpu release has the fix.
 [patch.crates-io]
 wgpu-hal = { path = "third_party/wgpu-hal" }
+# Nintendo Switch: newlib/aarch64 definitions (made by switch/patches/patch_libc.py).
+libc = { path = "switch/patches/libc-0.2.191" }
+getrandom02 = { package = "getrandom", path = "switch/patches/getrandom-0.2.17" }
+getrandom = { path = "switch/patches/getrandom-0.3.4" }
+winit = { path = "switch/patches/winit-0.30.13" }
+arboard = { path = "switch/patches/arboard-nx" }
+ring = { path = "switch/patches/ring-0.17.14" }
+wgpu = { path = "switch/patches/wgpu-30.0.1" }
+wgpu-core = { path = "switch/patches/wgpu-core-30.0.1" }
+wgpu-core-deps-windows-linux-android = { path = "switch/patches/wgpu-core-deps-windows-linux-android-30.0.1" }
 
 # Line tables keep file:line in backtraces; full debug info made every
 # example and test binary hundreds of megabytes and slow to link.

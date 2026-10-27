@@ -284,6 +284,7 @@ impl Game<'_> {
         tasks: Receiver<Task>,
         ready: &Sender<Ready>,
     ) -> Result<()> {
+        let started = Instant::now();
         self.load_world(WorldRequest::new(
             &launch.folder,
             launch.name.as_deref(),
@@ -291,6 +292,7 @@ impl Game<'_> {
             launch.creative,
             launch.create.as_ref(),
         )?)?;
+        log::info!("Horizon: server world loaded in {} ms", started.elapsed().as_millis());
         let saved = Box::new(self.level.clone());
         // Math.max(2, options.renderDistance): past vanilla's 32 when the
         // window's render distance is (Horizon's options go to 64).
@@ -356,7 +358,9 @@ impl Game<'_> {
             pending: None,
         });
         let _ = ready.send(Ok((pipe, self.level.name.clone())));
+        let settling = Instant::now();
         self.settle_spawn()?;
+        log::info!("Horizon: spawn settled in {} ms", settling.elapsed().as_millis());
         if let (Some(script), Some(output)) = (
             std::env::var_os("HORIZON_COMMAND_SCRIPT"),
             std::env::var_os("HORIZON_COMMAND_OUTPUT"),

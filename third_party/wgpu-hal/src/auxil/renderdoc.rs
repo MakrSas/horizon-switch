@@ -1,5 +1,7 @@
 //! RenderDoc integration - <https://renderdoc.org/>
 #![cfg_attr(not(any(feature = "gles", feature = "vulkan")), allow(dead_code))]
+// bevy-horizon: on Horizon, `RenderDoc::new` never loads RenderDoc, so some of this goes unused.
+#![cfg_attr(target_os = "horizon", allow(unused_imports, dead_code))]
 
 use alloc::format;
 use alloc::string::String;
@@ -10,6 +12,8 @@ use core::{ffi, ptr};
 #[derive(Debug)]
 pub struct RenderDocApi {
     api: renderdoc_sys::RENDERDOC_API_1_4_1,
+    // bevy-horizon: libloading doesn't build for Horizon (see `RenderDoc::new` below).
+    #[cfg(not(target_os = "horizon"))]
     lib: libloading::Library,
 }
 
@@ -32,10 +36,20 @@ pub enum RenderDoc {
 }
 
 // TODO: replace with libloading API once supported
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "horizon")))]
 const RTLD_NOLOAD: i32 = 0x4;
 
 impl RenderDoc {
+    /// bevy-horizon: Horizon (Nintendo Switch) has no dynamic loader to find RenderDoc with, and
+    /// RenderDoc doesn't run there anyway.
+    #[cfg(target_os = "horizon")]
+    pub unsafe fn new() -> Self {
+        RenderDoc::NotAvailable {
+            reason: "RenderDoc isn't available on Horizon".into(),
+        }
+    }
+
+    #[cfg(not(target_os = "horizon"))]
     pub unsafe fn new() -> Self {
         type GetApiFn = unsafe extern "C" fn(version: u32, out: *mut *mut ffi::c_void) -> i32;
 

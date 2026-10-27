@@ -2,6 +2,8 @@
   <img src="docs/media/banner.webp" alt="Horizon: Minecraft: Java Edition 26.3, rewritten in Rust and checked against vanilla by 281 differential harnesses" width="100%">
 </p>
 
+> **Nintendo Switch:** this fork adds an unofficial Switch homebrew port. See [switch/README.md](switch/README.md) ([по-русски](switch/README.ru.md)).
+
 <p align="center">
   <a href="https://github.com/ludovic111/horizon/actions/workflows/ci.yml"><img src="https://github.com/ludovic111/horizon/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <img src="https://img.shields.io/badge/Minecraft-Java%2026.3-5D9C3F" alt="Minecraft Java 26.3">

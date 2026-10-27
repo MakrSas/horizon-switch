@@ -68,6 +68,7 @@ fn virtual_interface(name: &str) -> bool {
 /// IPv6. No link-local or unique-local; loopback on request.
 pub fn interface_addresses(loopback: bool) -> Vec<IpAddr> {
     let mut found: Vec<(u8, IpAddr)> = Vec::new();
+    #[cfg(not(target_os = "horizon"))]
     for i in if_addrs::get_if_addrs().unwrap_or_default() {
         if virtual_interface(&i.name) {
             continue;

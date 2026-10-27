@@ -46,12 +46,12 @@ pub fn time<T>(name: &'static str, f: impl FnOnce() -> T) -> T {
 /// with more wall time than CPU time waited (for a lock, or for a core on a
 /// busy machine).
 pub fn thread_cpu() -> Option<Duration> {
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "horizon")))]
     {
         let t = rustix::time::clock_gettime(rustix::time::ClockId::ThreadCPUTime);
         Some(Duration::new(t.tv_sec as u64, t.tv_nsec as u32))
     }
-    #[cfg(not(unix))]
+    #[cfg(not(all(unix, not(target_os = "horizon"))))]
     None
 }
 /// The frame's spans, summed by name, slowest first; clears them.

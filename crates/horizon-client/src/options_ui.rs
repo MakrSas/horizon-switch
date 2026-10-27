@@ -89,6 +89,7 @@ pub enum Opt {
     /// Horizon's controller settings (`horizon-controller.txt`).
     PadEnabled,
     PadVibration,
+    PadBlockVibration,
     PadAdaptiveTriggers,
     PadLightbar,
     PadLookSensitivity,
@@ -271,6 +272,7 @@ impl Opt {
             // the namespace the client bundles (assets/horizon/lang).
             Opt::PadEnabled => "horizon.options.controller",
             Opt::PadVibration => "horizon.options.vibration",
+            Opt::PadBlockVibration => "horizon.options.block_vibration",
             Opt::PadAdaptiveTriggers => "horizon.options.adaptive_triggers",
             Opt::PadLightbar => "horizon.options.lightbar",
             Opt::PadLookSensitivity => "horizon.options.look_sensitivity",
@@ -582,6 +584,7 @@ impl Opt {
             Opt::JapaneseGlyphs => on_off(s.japanese_glyphs),
             Opt::PadEnabled => on_off(s.controller.enabled),
             Opt::PadVibration => on_off(s.controller.vibration),
+            Opt::PadBlockVibration => on_off(s.controller.block_vibration),
             Opt::PadAdaptiveTriggers => on_off(s.controller.adaptive_triggers),
             Opt::PadInvertX => on_off(s.controller.invert_x),
             Opt::PadInvertY => on_off(s.controller.invert_y),
@@ -751,6 +754,9 @@ impl Opt {
             Opt::JapaneseGlyphs => s.japanese_glyphs = !s.japanese_glyphs,
             Opt::PadEnabled => s.controller.enabled = !s.controller.enabled,
             Opt::PadVibration => s.controller.vibration = !s.controller.vibration,
+            Opt::PadBlockVibration => {
+                s.controller.block_vibration = !s.controller.block_vibration
+            }
             Opt::PadAdaptiveTriggers => {
                 s.controller.adaptive_triggers = !s.controller.adaptive_triggers
             }
@@ -1463,6 +1469,7 @@ impl OptionsUi {
                 rows.extend(pairs(&[
                     Opt::PadEnabled,
                     Opt::PadVibration,
+                    Opt::PadBlockVibration,
                     Opt::PadAdaptiveTriggers,
                     Opt::PadLightbar,
                     Opt::PadLookSensitivity,

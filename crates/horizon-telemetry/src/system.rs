@@ -13,6 +13,10 @@ use crate::payload::System;
 /// program opens no console window: a GUI launcher or a game started without one would flash a
 /// terminal for every probe.
 pub fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    // The Switch runs no other programs.
+    if cfg!(target_os = "horizon") {
+        return None;
+    }
     let mut command = std::process::Command::new(program);
     command.args(args);
     #[cfg(windows)]

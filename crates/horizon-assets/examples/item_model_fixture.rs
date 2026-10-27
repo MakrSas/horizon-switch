@@ -180,6 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut models = ItemModels {
         prototypes: raw,
         ..Default::default()
+        merged: Default::default(),
     };
     writeln!(
         output,

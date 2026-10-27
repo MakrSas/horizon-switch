@@ -1116,7 +1116,7 @@ impl crate::Adapter for super::Adapter {
             device: super::Device {
                 shared: Arc::clone(&self.shared),
                 main_vao,
-                #[cfg(all(native, feature = "renderdoc"))]
+                #[cfg(renderdoc_native)]
                 render_doc: Default::default(),
                 counters: Default::default(),
             },
@@ -1376,7 +1376,8 @@ impl crate::Adapter for super::Adapter {
                 composite_alpha_modes: vec![wgt::CompositeAlphaMode::Opaque], //TODO
                 maximum_frame_latency: 2..=2, //TODO, unused currently
                 current_extent: None,
-                usage: wgt::TextureUses::COLOR_TARGET,
+                // The swapchain image is a texture (see `egl::Swapchain`).
+                usage: wgt::TextureUses::COLOR_TARGET | wgt::TextureUses::COPY_SRC,
             })
         } else {
             None

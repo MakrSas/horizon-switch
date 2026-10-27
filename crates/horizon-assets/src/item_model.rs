@@ -1028,10 +1028,25 @@ pub struct ResolvedItem {
 pub struct ItemModels {
     pub definitions: BTreeMap<String, ClientItem>,
     pub prototypes: BTreeMap<String, Components>,
+    /// `components` results by item and patch: the HUD resolves its items every frame, and a
+    /// tool's components (its mining rules) are large to merge again each time.
+    pub merged: std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<Components>>>,
 }
 
 impl ItemModels {
-    pub fn components(&self, stack: &StackView) -> Components {
+    /// The stack's components: the item's defaults with the stack's patch,
+    /// merged once per item and patch (`merged`).
+    pub fn components(&self, stack: &StackView) -> std::sync::Arc<Components> {
+        let mut key = stack.item.clone();
+        if !stack.patch.is_empty() {
+            key.push('\0');
+            key.push_str(&serde_json::to_string(&stack.patch).unwrap_or_default());
+        }
+        if let Ok(cache) = self.merged.lock()
+            && let Some(hit) = cache.get(&key)
+        {
+            return hit.clone();
+        }
         let mut out = self
             .prototypes
             .get(&stack.item)
@@ -1042,6 +1057,13 @@ impl ItemModels {
                 Some(v) => out.insert(key.clone(), v.clone()),
                 None => out.remove(key),
             };
+        }
+        let out = std::sync::Arc::new(out);
+        if let Ok(mut cache) = self.merged.lock() {
+            if cache.len() >= 4096 {
+                cache.clear();
+            }
+            cache.insert(key, out.clone());
         }
         out
     }

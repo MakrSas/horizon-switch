@@ -243,9 +243,11 @@ pub(super) fn make_streaming(
         // WorldOptions.generateStructures, from the world's settings.
         let structures =
             horizon_client::save::WorldGen::read(world_root).is_none_or(|w| w.structures);
+        let building = std::time::Instant::now();
         let inner = Arc::new(VanillaTerrain::for_world(&options.resources.join("worldgen"), pack.assets.registry, res.biomes(), seed, dim.id(), structures).map_err(|e| {
                 format!("{e}\nPrepare the worldgen bundle with the launcher, or: horizon-prepare --prepare")
             })?);
+        log::info!("Horizon: {} generator built in {} ms", dim.id(), building.elapsed().as_millis());
         if dim == Dim::Overworld && structures {
             inner.search_rings_behind();
         }

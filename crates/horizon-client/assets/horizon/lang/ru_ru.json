@@ -1,6 +1,7 @@
 {
   "horizon.options.controller": "Геймпад",
   "horizon.options.vibration": "Вибрация",
+  "horizon.options.block_vibration": "Вибрация при ломании блоков",
   "horizon.options.adaptive_triggers": "Адаптивные триггеры",
   "horizon.options.lightbar": "Подсветка",
   "horizon.options.look_sensitivity": "Чувствительность обзора",

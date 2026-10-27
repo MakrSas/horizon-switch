@@ -22,6 +22,10 @@ pub const MAX_ARCHIVES_PER_DAY: u32 = 7;
 const RECENT: usize = 50;
 
 /// The platform data folder (what the `dirs` crate's data_dir gives).
+/// The game's folder on a Switch's SD card.
+#[cfg(target_os = "horizon")]
+pub const SWITCH_HOME: &str = "sdmc:/switch/horizon";
+
 pub fn data_dir() -> PathBuf {
     let env = |k: &str| {
         std::env::var_os(k)
@@ -48,6 +52,11 @@ pub fn data_dir() -> PathBuf {
 /// Where the launcher runs the game and keeps its saves: `HORIZON_HOME`, else `horizon` in the
 /// platform data folder (launcher/src/backend.rs `game_home`).
 pub fn game_home() -> PathBuf {
+    // The Switch: the game's folder on the SD card, beside the program.
+    #[cfg(target_os = "horizon")]
+    if std::env::var_os("HORIZON_HOME").is_none() {
+        return PathBuf::from(SWITCH_HOME);
+    }
     match std::env::var_os("HORIZON_HOME").filter(|h| !h.is_empty()) {
         Some(h) => PathBuf::from(h),
         None => data_dir().join("horizon"),
@@ -184,6 +193,8 @@ pub fn open_latest(dir: &Path) -> io::Result<Option<Latest>> {
         .create(true)
         .truncate(false)
         .open(dir.join(".lock"))?;
+    // The Switch has no file locks, and runs one program at a time.
+    #[cfg(not(target_os = "horizon"))]
     match lock.try_lock() {
         Ok(()) => {}
         Err(fs::TryLockError::WouldBlock) => return Ok(None),
@@ -283,7 +294,10 @@ fn ours(target: &str) -> bool {
 impl log::Log for Logger {
     fn enabled(&self, meta: &log::Metadata) -> bool {
         meta.level() <= log::Level::Info
-            && (ours(meta.target()) || meta.level() <= log::Level::Error)
+            && (ours(meta.target())
+                || meta.level() <= log::Level::Error
+                // The Switch port: the graphics stack's warnings too.
+                || (cfg!(target_os = "horizon") && meta.level() <= log::Level::Warn))
     }
 
     fn log(&self, record: &log::Record) {
@@ -590,4 +604,68 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&home);
     }
+}
+
+/// The Switch: the prepared resources travel to the SD card as one `resources.zip` (copying
+/// 28,000 files over MTP takes hours); the first start unpacks it into `resources/` and deletes
+/// it, showing its progress on libnx's console. A start cut short resumes: files already there
+/// with their full size are kept, and `horizon-resources.json` is written last.
+#[cfg(target_os = "horizon")]
+pub fn unpack_switch_resources(resources: &Path) -> std::io::Result<()> {
+    let archive = resources.with_extension("zip");
+    if resources.join("horizon-resources.json").is_file() || !archive.is_file() {
+        return Ok(());
+    }
+    log::info!("Horizon: unpacking {} into {}", archive.display(), resources.display());
+    let other = |e: zip::result::ZipError| std::io::Error::other(e.to_string());
+    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(std::fs::File::open(&archive)?))
+        .map_err(other)?;
+    let mut console = horizon_nx::console::Console::open();
+    let total = zip.len();
+    let mut shown = usize::MAX;
+    let mut last = None;
+    for i in 0..total {
+        let percent = i * 100 / total.max(1);
+        if percent != shown {
+            shown = percent;
+            let text = format!(
+                "\x1b[2J\x1b[10;8HHorizon\x1b[12;8HFirst start: unpacking the game's resources\x1b[14;8H{percent:3}%  ({i} of {total} files)\x1b[16;8HThis happens once. Please keep the console on.",
+            );
+            if !console.show(&text) {
+                return Err(std::io::Error::other("closed while unpacking"));
+            }
+        }
+        let mut entry = zip.by_index(i).map_err(other)?;
+        let Some(name) = entry.enclosed_name() else { continue };
+        let out = resources.join(name);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out)?;
+            continue;
+        }
+        if out.file_name().is_some_and(|n| n == "horizon-resources.json") {
+            let mut bytes = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut bytes)?;
+            last = Some((out, bytes));
+            continue;
+        }
+        if std::fs::metadata(&out).is_ok_and(|m| m.len() == entry.size()) {
+            continue;
+        }
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = std::io::BufWriter::with_capacity(1 << 16, std::fs::File::create(&out)?);
+        std::io::copy(&mut entry, &mut file)?;
+    }
+    if let Some((out, bytes)) = last {
+        std::fs::write(out, bytes)?;
+    }
+    // The archive must be closed before FAT lets it go.
+    drop(zip);
+    drop(console);
+    if let Err(e) = std::fs::remove_file(&archive) {
+        log::warn!("Horizon: could not delete {}: {e}", archive.display());
+    }
+    log::info!("Horizon: resources unpacked");
+    Ok(())
 }

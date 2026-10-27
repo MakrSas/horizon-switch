@@ -13,11 +13,14 @@ hkdf = "0.12"
 sha2 = "0.10"
 getrandom = "0.3"
 # SO_REUSEADDR/SO_REUSEPORT for the direct socket (TCP simultaneous open).
-socket2 = { version = "0.5", features = ["all"] }
 # This machine's addresses (LAN, VPNs such as Tailscale or ZeroTier, IPv6) for the code.
-if-addrs = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
 
 [lints]
 workspace = true
+
+# The Switch sockets (libnx) have neither SO_REUSEPORT nor an interface list.
+[target.'cfg(not(target_os = "horizon"))'.dependencies]
+socket2 = { version = "0.5", features = ["all"] }
+if-addrs = "0.13"

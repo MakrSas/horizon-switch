@@ -456,21 +456,24 @@ impl Game<'_> {
             .filter(|(_, c)| c.fresh && c.lit)
             .map(|(k, _)| *k)
             .collect();
-        for key in fresh {
-            if let Some(c) = self.world.chunks.get_mut(&key) {
-                Arc::make_mut(c).fresh = false;
+        use horizon_client::spans::time;
+        time("mob_generation_spawn", || {
+            for key in fresh {
+                if let Some(c) = self.world.chunks.get_mut(&key) {
+                    Arc::make_mut(c).fresh = false;
+                }
+                self.spawn_generation_creatures(key.0, key.1);
             }
-            self.spawn_generation_creatures(key.0, key.1);
-        }
+        });
         self.tick_leads();
-        self.spawn_natural();
+        time("mob_natural_spawn", || self.spawn_natural());
         // ServerChunkCache.tickChunks: the custom spawners tick only with spawn_mobs.
         if self.ui.rules.bool("spawn_mobs") {
             self.tick_wandering_trader();
             self.tick_patrol_spawner();
         }
         self.tick_raids();
-        self.tick_creature_entities()
+        time("mob_entities", || self.tick_creature_entities())
     }
     /// `DistanceManager.inEntityTickingRange` in an entity-ticking chunk
     /// (block coordinates), from every player's tickets (`update_chunk_tickets`).

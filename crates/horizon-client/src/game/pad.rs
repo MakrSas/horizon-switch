@@ -26,7 +26,7 @@ pub(super) const HELP: &[&str] = &[
 #[derive(Default)]
 pub(super) struct Pads {
     /// The real controllers and the DualSense's output.
-    #[cfg(feature = "controllers")]
+    #[cfg(any(feature = "controllers", target_os = "horizon"))]
     devices: hardware::Devices,
     /// The virtual pad of `horizon-ctl pad`.
     injected: PadState,
@@ -53,12 +53,16 @@ pub(super) struct Pads {
     health: HealthWatch,
 }
 
-#[cfg(feature = "controllers")]
+#[cfg(all(feature = "controllers", not(target_os = "horizon")))]
+mod hardware;
+/// The Switch: Joy-Con and Pro Controller through libnx.
+#[cfg(target_os = "horizon")]
+#[path = "pad/switch.rs"]
 mod hardware;
 
 /// A build without the `controllers` feature (the server build, which must not need libudev): no
 /// hardware pads, only `horizon-ctl pad`'s virtual one.
-#[cfg(not(feature = "controllers"))]
+#[cfg(all(not(feature = "controllers"), not(target_os = "horizon")))]
 mod hardware {
     use super::{super::Game, Pads};
     use horizon_client::gamepad::{PadState, Pulse, Rumble};
@@ -204,6 +208,13 @@ impl Game<'_> {
     /// button, like a rebound keyboard key.
     fn pad_action(&mut self, action: &str, down: bool) -> Result<()> {
         match action {
+            gamepad::DEBUG_SCREEN => {
+                // F3 alone: the debug screen, in the world.
+                if down && self.title.is_none() && self.screen == Screen::Playing {
+                    self.debug = !self.debug;
+                }
+                Ok(())
+            }
             gamepad::HOTBAR_PREVIOUS | gamepad::HOTBAR_NEXT => {
                 if down && self.screen == Screen::Playing {
                     self.selected =
@@ -301,6 +312,9 @@ impl Game<'_> {
     pub(super) fn pad_rumble(&mut self, rumble: Rumble) {
         let settings = &self.settings.controller;
         if !settings.enabled || !settings.vibration || !self.pad.in_use {
+            return;
+        }
+        if matches!(rumble, Rumble::BlockBroken) && !settings.block_vibration {
             return;
         }
         let Some(pulse) = rumble.pulse() else {

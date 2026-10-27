@@ -1,0 +1,45 @@
+[unstable]
+build-std = ["std", "panic_abort"]
+json-target-spec = true
+
+[build]
+target = "@SWITCH_DIR@/aarch64-nintendo-switch-newlib.json"
+
+[target.aarch64-nintendo-switch-newlib]
+linker = "@DEVKITPRO@/devkitA64/bin/aarch64-none-elf-gcc"
+rustflags = [
+  "-C", "target-cpu=cortex-a57",
+  "-C", "link-arg=-specs=@DEVKITPRO@/libnx/switch.specs",
+  "-C", "link-arg=-march=armv8-a+crc+crypto",
+  "-C", "link-arg=-mtp=soft",
+  "-C", "link-arg=-fPIE",
+  "-C", "link-arg=-Wl,--wrap=fatalThrow",
+  "-C", "link-arg=-Wl,--wrap=diagAbortWithResult",
+  "-C", "link-arg=-Wl,--wrap=abort",
+  "-C", "link-arg=-Wl,--wrap=rename",
+  "-C", "link-arg=-Wl,--wrap=threadCreate",
+  "-C", "link-arg=-Wl,--wrap=pthread_key_create",
+  "-C", "link-arg=-Wl,--wrap=pthread_key_delete",
+  "-C", "link-arg=-Wl,--wrap=pthread_getspecific",
+  "-C", "link-arg=-Wl,--wrap=pthread_setspecific",
+  "-C", "link-arg=-L@DEVKITPRO@/libnx/lib",
+  "-C", "link-arg=-L@DEVKITPRO@/portlibs/switch/lib",
+  "-C", "link-arg=-Wl,--start-group",
+  "-C", "link-arg=-L@SWITCH_BUILD@/nxshim",
+  "-C", "link-arg=-lnxshim",
+  "-C", "link-arg=-L@SWITCH_BUILD@/nvk/lib",
+  "-C", "link-arg=-lvulkan_bh",
+  "-C", "link-arg=-lexpat",
+  "-C", "link-arg=-lzstd",
+  "-C", "link-arg=-lz",
+  "-C", "link-arg=-lEGL",
+  "-C", "link-arg=-lglapi",
+  "-C", "link-arg=-ldrm_nouveau",
+  "-C", "link-arg=-lnx",
+  "-C", "link-arg=-lc",
+  "-C", "link-arg=-lm",
+  "-C", "link-arg=-lstdc++",
+  "-C", "link-arg=-lgcc",
+  "-C", "link-arg=-lsysbase",
+  "-C", "link-arg=-Wl,--end-group",
+]
