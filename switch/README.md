@@ -17,10 +17,10 @@ Tested on one Switch v1 (Erista) on firmware 22.5.0 with Atmosphère 1.12.1.
 | Rendering | Vulkan through NVK (Mesa's open-source NVIDIA driver, via [mesa-switch](https://github.com/danfromtico/mesa-switch)), with OpenGL through devkitPro's Mesa as the fallback. |
 | Controls | Joy-Con (attached or detached) and the Pro Controller, Bedrock-style layout, rebindable in the controller settings (Controller Binds). HD Rumble, with its own toggle for breaking blocks. The touch screen works in menus and inventories, and picks hotbar slots in the world. |
 | Startup | About 45 s to the world: about 11 s to the title screen, then the world generator. The screen stays black for the first seconds. |
+| Skins | Wear any Minecraft account's skin: Options → Skin Customization, type its nickname. Needs the internet once; the skin is kept for offline play. |
 | Sound | None yet. |
 | Multiplayer | Not supported. |
 | Docked mode | Untested. |
-| Text input | No on-screen keyboard yet: world names keep their defaults. |
 
 ## Installing
 

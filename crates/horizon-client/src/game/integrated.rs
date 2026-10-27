@@ -199,6 +199,11 @@ impl Game<'_> {
         let player = auth
             .as_ref()
             .map_or_else(|| self.options.player_name(), |a| a.name.clone());
+        // The skin chosen in Skin Customization goes on the owner's profile.
+        if let Ok(dir) = std::env::current_dir() {
+            horizon_client::skin_names::load(&dir);
+        }
+        horizon_client::skin_names::set_owner(&player);
         let launch = Launch {
             folder: folder.to_owned(),
             name: name.map(str::to_owned),

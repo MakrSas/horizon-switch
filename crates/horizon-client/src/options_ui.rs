@@ -885,6 +885,8 @@ pub enum Page {
     Horizon,
     /// AI Agent: agent control on or off, whether an agent is connected, the connection details.
     Agent,
+    /// Skin Customization: whose skin to wear (`skin_names`).
+    Skin,
 }
 #[derive(Clone, Debug, PartialEq)]
 enum Act {
@@ -1008,6 +1010,10 @@ pub struct OptionsUi {
     language_choice: Option<String>,
     language_search: ui::EditBox,
     pub(crate) settings_search: ui::EditBox,
+    /// Skin Customization's nickname.
+    skin_name: ui::EditBox,
+    /// The pad's keyboard is still to open over it (`take_skin_keyboard`).
+    skin_keyboard: bool,
     /// Packs: the packs found and the selection the screen opens with.
     pub pack_infos: Vec<crate::pack_screen::PackInfo>,
     pub pack_selection: Vec<String>,
@@ -1043,6 +1049,12 @@ impl Default for OptionsUi {
             language_choice: None,
             language_search: search,
             settings_search,
+            skin_name: {
+                let mut b = ui::EditBox::new(0.0, 0.0, 200.0, 15.0);
+                b.focused = false;
+                b
+            },
+            skin_keyboard: false,
             pack_infos: Vec::new(),
             pack_selection: Vec::new(),
             pack_screen: None,
@@ -1141,6 +1153,16 @@ impl OptionsUi {
         self.settings_search.focused
             && matches!(self.page(), Page::Video | Page::Controls | Page::KeyBinds)
     }
+    /// Once per visit to Skin Customization: its nickname box takes the
+    /// keyboard, for the pad's on-screen keyboard to type into. False when
+    /// already offered or on another page.
+    pub fn take_skin_keyboard(&mut self) -> bool {
+        if self.page() != Page::Skin || !std::mem::take(&mut self.skin_keyboard) {
+            return false;
+        }
+        self.skin_name.focused = true;
+        true
+    }
     pub fn page(&self) -> Page {
         *self.stack.last().unwrap_or(&Page::Main)
     }
@@ -1167,6 +1189,14 @@ impl OptionsUi {
         if matches!(page, Page::Video | Page::Controls | Page::KeyBinds) {
             self.settings_search.set_value("");
             self.settings_search.focused = false;
+        }
+        if page == Page::Skin {
+            if let Ok(dir) = std::env::current_dir() {
+                crate::skin_names::load(&dir);
+            }
+            self.skin_name.set_value(&crate::skin_names::name());
+            self.skin_name.focused = false;
+            self.skin_keyboard = true;
         }
         if page == Page::Language {
             self.language_choice = None;
@@ -1210,6 +1240,7 @@ impl OptionsUi {
             Page::Credits => "credits_and_attribution.screen.title",
             Page::Horizon => "Horizon Settings",
             Page::Agent => "AI Agent",
+            Page::Skin => "options.skinCustomisation.title",
         }
     }
     fn scrollbar_x(&self, width: f32) -> f32 {
@@ -1344,6 +1375,11 @@ impl OptionsUi {
                 )
                 .collect()
             }
+            Page::Skin => vec![
+                Row::Note("Wear the skin of this Minecraft account (nickname below).".into()),
+                Row::Note("Empty for the default skin. Looked up online when a world opens;".into()),
+                Row::Note("the last skin found stays for play without the internet.".into()),
+            ],
             Page::Agent => {
                 let mut rows = vec![Row::Buttons(
                     self.extra_button(s, crate::extras::Item::AgentControl),
@@ -1595,6 +1631,10 @@ impl OptionsUi {
             self.settings_search.x = cx - 100.0;
             self.settings_search.y = 17.0;
         }
+        if page == Page::Skin {
+            self.skin_name.x = cx - 100.0;
+            self.skin_name.y = 90.0 - self.scroll;
+        }
         let done = |y: f32| button(cx - 100.0, y, 200.0, tr("gui.done"), Act::Done);
         // (list top, list bottom, content height)
         let (mut top, mut bottom, mut content) = (33.0, h - 33.0, 0.0);
@@ -1621,7 +1661,7 @@ impl OptionsUi {
                     Act::None,
                 )));
                 let entries = [
-                    ("options.skinCustomisation", None),
+                    ("options.skinCustomisation", Some(Page::Skin)),
                     ("options.sounds", Some(Page::Sound)),
                     ("options.video", Some(Page::Video)),
                     ("options.controls", Some(Page::Controls)),
@@ -2371,6 +2411,11 @@ impl OptionsUi {
             }
             self.settings_search = search;
         }
+        if self.page() == Page::Skin {
+            let mut name = self.skin_name.clone();
+            name.draw(batch, atlas, None);
+            self.skin_name = name;
+        }
         if let Some(lines) = tooltip {
             ui::tooltip(batch, atlas, &lines, cursor);
         }
@@ -2451,6 +2496,16 @@ impl OptionsUi {
         }
         let (widgets, top, bottom, content) = self.layout(s, size.0, size.1);
         let mut events = Vec::new();
+        if !drag && self.page() == Page::Skin {
+            let name = &mut self.skin_name;
+            name.focused = ui::hovered((x, y), name.x, name.y, name.width, name.height);
+            if name.focused {
+                name.click(atlas, x, false, false);
+                self.skin_keyboard = true;
+                events.push(Event::ButtonClick);
+                return events;
+            }
+        }
         if !drag && matches!(self.page(), Page::Video | Page::Controls | Page::KeyBinds) {
             let search = &mut self.settings_search;
             search.focused = ui::hovered((x, y), search.x, search.y, search.width, search.height);
@@ -2730,7 +2785,10 @@ impl OptionsUi {
             p.type_text(&crate::screen_draw::Measure(&atlas.font), text);
             return;
         }
-        if self.page() == Page::Language {
+        if self.page() == Page::Skin && self.skin_name.focused {
+            self.skin_name.insert_text(text);
+            crate::skin_names::set_name(&self.skin_name.value);
+        } else if self.page() == Page::Language {
             self.language_search.insert_text(text);
             self.scroll = 0.0;
         } else if self.settings_search_active() {
@@ -2754,6 +2812,11 @@ impl OptionsUi {
         {
             let m = crate::screen_draw::Measure(&atlas.font);
             return p.shortcut(&m, shortcut, clipboard);
+        }
+        if self.page() == Page::Skin && self.skin_name.focused {
+            self.skin_name.shortcut(shortcut, clipboard);
+            crate::skin_names::set_name(&self.skin_name.value);
+            return true;
         }
         if self.page() == Page::Language {
             if self.language_search.shortcut(shortcut, clipboard) {
@@ -2850,6 +2913,16 @@ impl OptionsUi {
                 }
             }
             self.scroll = 0.0;
+        } else if self.page() == Page::Skin && self.skin_name.focused {
+            if !self.skin_name.key(key, false, false)
+                && let Some(t) = text
+            {
+                let typed: String = t.chars().filter(|c| !c.is_control()).collect();
+                if !typed.is_empty() {
+                    self.skin_name.insert_text(&typed);
+                }
+            }
+            crate::skin_names::set_name(&self.skin_name.value);
         } else if self.settings_search_active() {
             if !self.settings_search.key(key, false, false)
                 && let Some(t) = text

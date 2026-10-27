@@ -703,7 +703,10 @@ fn serve_login(
                 return Err(err);
             }
         },
-        None => (offline_uuid(&hello.name), Vec::new()),
+        None => (
+            offline_uuid(&hello.name),
+            crate::skin_names::login_properties(&hello.name),
+        ),
     };
     // verifyLoginAndFinishConnectionSetup: PlayerList.canPlayerLogin, then
     // duplicates and a full server.

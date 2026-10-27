@@ -321,3 +321,8 @@ void nxshim_rumble(bool handheld, u32 styles, float low, float high) {
     bool single = style == HidNpadStyleTag_NpadJoyLeft || style == HidNpadStyleTag_NpadJoyRight;
     hidSendVibrationValues(handles, values, single ? 1 : 2);
 }
+
+// BSD sockets and DNS (libnx's bsd and sfdnsres services), for the game's HTTPS requests.
+int nxshim_net_init(void) {
+    return R_SUCCEEDED(socketInitializeDefault()) ? 0 : -1;
+}

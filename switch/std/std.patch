@@ -5,6 +5,29 @@
  # See comments in `library/windows-sys/Cargo.toml` for why this is patched
  windows-sys = { path = 'windows-sys' }
 +libc = { path = "@SWITCH_DIR@/patches/libc-0.2.191" }
+--- a/library/std/src/sys/net/connection/socket/mod.rs
++++ b/library/std/src/sys/net/connection/socket/mod.rs
+@@ -440,8 +440,18 @@
+             Err(e) => return Err(e),
+         }
+ 
+-        sock.set_nonblocking(false)?;
+-        sock.poll_connected(timeout)?;
++        // The Switch's socket service refuses a socket made blocking while its connection is
++        // still in progress: wait for it first.
++        #[cfg(target_os = "horizon")]
++        {
++            sock.poll_connected(timeout)?;
++            sock.set_nonblocking(false)?;
++        }
++        #[cfg(not(target_os = "horizon"))]
++        {
++            sock.set_nonblocking(false)?;
++            sock.poll_connected(timeout)?;
++        }
+         Ok(TcpStream { inner: sock })
+     }
+ 
 --- a/library/std/src/sys/thread/unix.rs
 +++ b/library/std/src/sys/thread/unix.rs
 @@ -155,6 +155,13 @@

@@ -2395,6 +2395,11 @@ impl Game<'_> {
                                     };
                                     let textures =
                                         skins::unpack(&t.value, signature, &skins::TEXTURE_URIS);
+                                    log::info!(
+                                        "Horizon: {name}'s textures: skin {:?}, signed {}",
+                                        textures.skin,
+                                        textures.signed
+                                    );
                                     r.skin_textures.entry(e.uuid).or_insert(textures);
                                 }
                             }
@@ -2711,6 +2716,24 @@ impl Game<'_> {
     /// never in the tab list: resolve each profile's textures and give the
     /// level's player models their skin.
     fn update_remote_skins(&mut self) {
+        // Single player: the skin chosen by nickname (skin_names), straight from this process,
+        // whether or not the server's player list carried it.
+        if self.has_singleplayer_server()
+            && let Some(t) = horizon_client::skin_names::own_textures()
+            && let Some(r) = self.remote.as_mut()
+            && r.profile != 0
+            && r.skin_textures.get(&r.profile).is_none_or(|t| t.skin.is_none())
+        {
+            use horizon_client::skins::{self, Signature};
+            let signature = if t.signature.is_some() {
+                Signature::Signed
+            } else {
+                Signature::Unsigned
+            };
+            let textures = skins::unpack(&t.value, signature, &skins::TEXTURE_URIS);
+            log::info!("Horizon: own skin from the nickname: {:?}", textures.skin);
+            r.skin_textures.insert(r.profile, textures);
+        }
         let Some(r) = self.remote.as_ref() else {
             return;
         };
@@ -2763,6 +2786,9 @@ impl Game<'_> {
         if let Some(skin) = own
             && let Some(mob) = self.player_model.as_mut()
         {
+            if mob.skin.as_deref() != Some(skin.as_str()) {
+                log::info!("Horizon: own player model wears {skin}");
+            }
             mob.skin = Some(skin);
         }
         // ClientMannequin.updateSkin (PlayerSkinRenderCache.lookup): a

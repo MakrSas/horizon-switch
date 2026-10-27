@@ -706,7 +706,9 @@ pub const SO_RCVLOWAT: c_int = 0x1004;
 pub const SO_SNDTIMEO: c_int = 0x1005;
 pub const SO_RCVTIMEO: c_int = 0x1006;
 cfg_if! {
-    if #[cfg(target_os = "horizon")] {
+    if #[cfg(all(target_os = "horizon", target_arch = "aarch64"))] {
+        pub const SO_ERROR: c_int = 0x1007;
+    } else if #[cfg(target_os = "horizon")] {
         pub const SO_ERROR: c_int = 0x1009;
     } else {
         pub const SO_ERROR: c_int = 0x1007;
@@ -744,7 +746,7 @@ pub const IFF_ALTPHYS: c_int = IFF_LINK2; // use alternate physical connection
 pub const IFF_MULTICAST: c_int = 0x8000; // supports multicast
 
 cfg_if! {
-    if #[cfg(any(target_os = "vita", target_os = "rtems"))] {
+    if #[cfg(any(target_os = "vita", target_os = "rtems", all(target_os = "horizon", target_arch = "aarch64")))] {
         pub const TCP_NODELAY: c_int = 1;
         pub const TCP_MAXSEG: c_int = 2;
     } else if #[cfg(target_os = "espidf")] {
@@ -771,7 +773,9 @@ cfg_if! {
 }
 
 cfg_if! {
-    if #[cfg(target_os = "horizon")] {
+    if #[cfg(all(target_os = "horizon", target_arch = "aarch64"))] {
+        pub const IP_TOS: c_int = 3;
+    } else if #[cfg(target_os = "horizon")] {
         pub const IP_TOS: c_int = 7;
     } else if #[cfg(target_os = "espidf")] {
         pub const IP_TOS: c_int = 1;
@@ -780,7 +784,7 @@ cfg_if! {
     }
 }
 cfg_if! {
-    if #[cfg(any(target_os = "vita", target_os = "rtems"))] {
+    if #[cfg(any(target_os = "vita", target_os = "rtems", all(target_os = "horizon", target_arch = "aarch64")))] {
         pub const IP_TTL: c_int = 4;
     } else if #[cfg(target_os = "espidf")] {
         pub const IP_TTL: c_int = 2;
@@ -802,7 +806,7 @@ cfg_if! {
 }
 
 cfg_if! {
-    if #[cfg(any(target_os = "vita", target_os = "rtems"))] {
+    if #[cfg(any(target_os = "vita", target_os = "rtems", all(target_os = "horizon", target_arch = "aarch64")))] {
         pub const IP_ADD_MEMBERSHIP: c_int = 12;
         pub const IP_DROP_MEMBERSHIP: c_int = 13;
     } else if #[cfg(target_os = "espidf")] {
@@ -895,7 +899,7 @@ cfg_if! {
         pub const EAI_MEMORY: c_int = 203;
         pub const EAI_NONAME: c_int = 200;
         pub const EAI_SOCKTYPE: c_int = 10;
-    } else if #[cfg(target_os = "rtems")] {
+    } else if #[cfg(any(target_os = "rtems", all(target_os = "horizon", target_arch = "aarch64")))] {
         pub const EAI_FAMILY: c_int = 5;
         pub const EAI_MEMORY: c_int = 6;
         pub const EAI_NONAME: c_int = 8;

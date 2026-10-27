@@ -43,6 +43,9 @@ fn main() {
             let (total, used) = horizon_nx::memory::usage();
             log::info!("Horizon: memory {} MB, {} MB used", total >> 20, used >> 20);
             log::info!("Horizon: {} CPU cores", std::thread::available_parallelism().map_or(0, |n| n.get()));
+            if !horizon_nx::net_init() {
+                log::warn!("Horizon: no network: skins by nickname stay default");
+            }
         }
         crash::install(home.clone(), side);
     }

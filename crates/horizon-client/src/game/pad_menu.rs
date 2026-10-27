@@ -233,6 +233,12 @@ impl Game<'_> {
                 _ => {}
             }
         }
+        if self.screen == Screen::Options
+            && self.ui.options.page() == Page::Skin
+            && let Some(field) = targets.iter().find(|t| t.kind == Kind::Field)
+        {
+            return Some(*field);
+        }
         targets
             .iter()
             .find(|t| t.kind == Kind::Button)
@@ -892,6 +898,14 @@ impl Game<'_> {
             && (self.screen == Screen::Chat || self.sign_edit.is_some())
         {
             self.pad.menu.osk_dismissed = true;
+            self.pad_open_keyboard();
+        }
+        // Skin Customization: its one field takes the keyboard as the page opens.
+        if self.pad.menu.osk.is_none()
+            && self.pad.menu.open_polls >= 3
+            && self.screen == Screen::Options
+            && self.ui.options.take_skin_keyboard()
+        {
             self.pad_open_keyboard();
         }
     }

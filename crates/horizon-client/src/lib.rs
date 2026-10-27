@@ -171,6 +171,7 @@ pub mod settings;
 pub mod shader_pack_list;
 pub mod shadows;
 pub mod signs;
+pub mod skin_names;
 pub mod skins;
 pub mod snbt;
 pub mod sound_engine;

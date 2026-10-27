@@ -360,12 +360,26 @@ impl Downloader {
                 let _ = std::fs::write(&file, &body);
                 Some(body)
             });
+            let size = bytes.as_ref().map(Vec::len);
             let image = bytes
-                .and_then(|b| crate::hud::decode_bytes(&b).ok())
+                .and_then(|b| {
+                    crate::hud::decode_bytes(&b)
+                        .map_err(|e| log::warn!("Horizon: skin {url}: not an image: {e}"))
+                        .ok()
+                })
                 .and_then(|(w, h, rgba)| match kind {
-                    Kind::Skin => process_legacy_skin(w, h, &rgba),
+                    Kind::Skin => process_legacy_skin(w, h, &rgba)
+                        .or_else(|| {
+                            log::warn!("Horizon: skin {url}: unsupported size {w}x{h}");
+                            None
+                        }),
                     _ => Some(rgba),
                 });
+            log::info!(
+                "Horizon: skin {url}: {} bytes, {}",
+                size.unwrap_or(0),
+                if image.is_some() { "ready" } else { "failed" }
+            );
             let _ = send.send((key, image));
         });
         Download::Pending
@@ -386,6 +400,7 @@ fn http_get(url: &str) -> Option<Vec<u8>> {
         .build()
         .get(url)
         .call()
+        .map_err(|e| log::warn!("Horizon: skin download: {url}: {e}"))
         .ok()?;
     let mut body = Vec::new();
     response

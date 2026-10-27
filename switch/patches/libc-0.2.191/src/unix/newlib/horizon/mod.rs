@@ -30,8 +30,8 @@ s! {
 
     pub struct pollfd {
         pub fd: c_int,
-        pub events: c_int,
-        pub revents: c_int,
+        pub events: PollFlags,
+        pub revents: PollFlags,
     }
 
     pub struct sockaddr {
@@ -155,28 +155,46 @@ pub const TIMER_ABSTIME: c_uint = 4;
 pub const SOL_SOCKET: c_int = 65535;
 pub const MSG_OOB: c_int = 1;
 pub const MSG_PEEK: c_int = 2;
-pub const MSG_DONTWAIT: c_int = 4;
-pub const MSG_DONTROUTE: c_int = 0;
-pub const MSG_WAITALL: c_int = 0;
 pub const MSG_MORE: c_int = 0;
-pub const MSG_NOSIGNAL: c_int = 0;
+// The Switch: libnx's sys/socket.h (FreeBSD's values).
+cfg_if! {
+    if #[cfg(all(target_os = "horizon", target_arch = "aarch64"))] {
+        pub const MSG_DONTWAIT: c_int = 0x80;
+        pub const MSG_DONTROUTE: c_int = 0x4;
+        pub const MSG_WAITALL: c_int = 0x40;
+        pub const MSG_NOSIGNAL: c_int = 0x20000;
+    } else {
+        pub const MSG_DONTWAIT: c_int = 4;
+        pub const MSG_DONTROUTE: c_int = 0;
+        pub const MSG_WAITALL: c_int = 0;
+        pub const MSG_NOSIGNAL: c_int = 0;
+    }
+}
 pub const SOL_CONFIG: c_uint = 65534;
 
 pub const PTHREAD_STACK_MIN: size_t = 4096;
 pub const WNOHANG: c_int = 1;
 
-pub const POLLIN: c_int = 0x0001;
-pub const POLLPRI: c_int = 0x0002;
-pub const POLLOUT: c_int = 0x0008;
-pub const POLLRDNORM: c_int = 0x0040;
-pub const POLLWRNORM: c_int = POLLOUT;
-pub const POLLRDBAND: c_int = 0x0080;
-pub const POLLWRBAND: c_int = 0x0100;
+// The Switch's poll.h: short flags, POLLOUT 0x4, and POLLERR 0x8 apart from it.
+#[cfg(all(target_os = "horizon", target_arch = "aarch64"))]
+pub type PollFlags = crate::c_short;
+#[cfg(not(all(target_os = "horizon", target_arch = "aarch64")))]
+pub type PollFlags = c_int;
+pub const POLLIN: PollFlags = 0x0001;
+pub const POLLPRI: PollFlags = 0x0002;
+#[cfg(all(target_os = "horizon", target_arch = "aarch64"))]
+pub const POLLOUT: PollFlags = 0x0004;
+#[cfg(not(all(target_os = "horizon", target_arch = "aarch64")))]
+pub const POLLOUT: PollFlags = 0x0008;
+pub const POLLRDNORM: PollFlags = 0x0040;
+pub const POLLWRNORM: PollFlags = POLLOUT;
+pub const POLLRDBAND: PollFlags = 0x0080;
+pub const POLLWRBAND: PollFlags = 0x0100;
 /// POLLERR behavior on 3DS+HorizonOS is unclear, and it may be unsupported.
-pub const POLLERR: c_int = 0x0008;
+pub const POLLERR: PollFlags = 0x0008;
 /// POLLHUP behavior on 3DS+HorizonOS is unclear, and it may be unsupported.
-pub const POLLHUP: c_int = 0x0010;
-pub const POLLNVAL: c_int = 0x0020;
+pub const POLLHUP: PollFlags = 0x0010;
+pub const POLLNVAL: PollFlags = 0x0020;
 
 pub const EAI_AGAIN: c_int = 2;
 pub const EAI_BADFLAGS: c_int = 3;
@@ -192,8 +210,15 @@ pub const EAI_OVERFLOW: c_int = 14;
 pub const EAI_MAX: c_int = 15;
 
 pub const AF_UNIX: c_int = 1;
+#[cfg(all(target_os = "horizon", target_arch = "aarch64"))]
+pub const AF_INET6: c_int = 28;
+#[cfg(not(all(target_os = "horizon", target_arch = "aarch64")))]
 pub const AF_INET6: c_int = 23;
 
+// libnx's sys/filio.h: _IOW('f', 126, int).
+#[cfg(all(target_os = "horizon", target_arch = "aarch64"))]
+pub const FIONBIO: c_ulong = 0x8004_667e;
+#[cfg(not(all(target_os = "horizon", target_arch = "aarch64")))]
 pub const FIONBIO: c_ulong = 1;
 
 pub const RTLD_DEFAULT: *mut c_void = ptr::null_mut();
