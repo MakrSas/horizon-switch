@@ -3,6 +3,7 @@
 #![cfg(target_os = "horizon")]
 
 pub mod alloc;
+pub mod audio;
 pub mod console;
 pub mod memory;
 pub mod pad;
